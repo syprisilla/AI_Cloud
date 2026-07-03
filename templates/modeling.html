@@ -1,0 +1,152 @@
+{% extends "dashboard_base.html" %}
+
+{% block styles %}
+<link rel="stylesheet" href="/static/eda.css?v=20260701-modeling-split" />
+{% endblock %}
+
+{% block content %}
+<section class="eda-container">
+  <header class="eda-header">
+    <a class="eda-back" href="{% if selected_document %}/eda/{{ selected_document.id }}/charts?username={{ username }}{% else %}/eda?username={{ username }}{% endif %}">
+      EDA 페이지로
+    </a>
+    <h2>{% if analysis_header.title %}{{ analysis_header.title }}{% elif selected_document %}{{ selected_document.title }} 모델링{% else %}모델링 결과{% endif %}</h2>
+    <p>{% if analysis_header.subtitle %}{{ analysis_header.subtitle }}{% else %}Train/Validation 분할과 모델별 F1 macro, Score Table, Confusion Matrix, Best Model을 확인합니다.{% endif %}</p>
+  </header>
+
+  <div class="eda-content">
+    {% if error %}
+    <p class="eda-error">{{ error }}</p>
+    {% endif %}
+
+    {% if ml_result %}
+    <section class="ml-panel" aria-label="예측 모델 결과">
+      <div class="ml-explain-card">
+        <div>
+          <span>Modeling Result</span>
+          <h3>{{ ml_result.target_column }} 예측 모델</h3>
+          <p>{{ ml_result.explanation.result }}</p>
+        </div>
+        <dl class="ml-explain-list">
+          <div>
+            <dt>데이터</dt>
+            <dd>{{ ml_result.explanation.dataset }}</dd>
+          </div>
+          <div>
+            <dt>Target</dt>
+            <dd>{{ ml_result.explanation.target }}</dd>
+          </div>
+          <div>
+            <dt>Feature</dt>
+            <dd>{{ ml_result.explanation.features }}</dd>
+          </div>
+          <div>
+            <dt>전처리</dt>
+            <dd>{{ ml_result.explanation.preprocess }}</dd>
+          </div>
+        </dl>
+      </div>
+
+      <div class="ml-summary-grid">
+        <article>
+          <span>Train</span>
+          <strong>{{ ml_result.train_count }}</strong>
+        </article>
+        <article>
+          <span>Validation</span>
+          <strong>{{ ml_result.valid_count }}</strong>
+        </article>
+        <article>
+          <span>Best Model</span>
+          <strong>{{ ml_result.best_model.name }}</strong>
+        </article>
+        <article>
+          <span>Best {{ ml_result.primary_metric }}</span>
+          <strong>{{ ml_result.best_model.valid_score }}</strong>
+        </article>
+      </div>
+
+      <div class="ml-score-layout">
+        <article class="ml-score-card">
+          <h3>모델별 {{ ml_result.primary_metric }} 비교</h3>
+          <img src="{{ ml_result.score_chart }}" alt="모델별 성능 비교 그래프" />
+          <p class="ml-best">Best Model: {{ ml_result.best_model.name }} / Validation {{ ml_result.primary_metric }} {{ ml_result.best_model.valid_score }} / {{ ml_result.secondary_metric }} {{ ml_result.best_model.secondary_score }}</p>
+        </article>
+        <article class="ml-score-card">
+          <h3>Score Table</h3>
+          <div class="ml-table-wrap">
+            <table class="ml-score-table">
+              <thead>
+                <tr>
+                  <th>모델</th>
+                  <th>Train</th>
+                  <th>Validation</th>
+                  <th>{{ ml_result.secondary_metric }}</th>
+                  {% if ml_result.task_type == '분류' %}
+                  <th>Precision</th>
+                  <th>Recall</th>
+                  {% endif %}
+                  {% if ml_result.tertiary_metric %}
+                  <th>{{ ml_result.tertiary_metric }}</th>
+                  {% endif %}
+                </tr>
+              </thead>
+              <tbody>
+                {% for score in ml_result.scores %}
+                <tr>
+                  <td>{{ score.name }}</td>
+                  <td>{{ score.train_score }}</td>
+                  <td>{{ score.valid_score }}</td>
+                  <td>{{ score.secondary_score }}</td>
+                  {% if ml_result.task_type == '분류' %}
+                  <td>{{ score.precision }}</td>
+                  <td>{{ score.recall }}</td>
+                  {% endif %}
+                  {% if ml_result.tertiary_metric %}
+                  <td>{% if score.roc_auc is not none and score.roc_auc == score.roc_auc %}{{ score.roc_auc }}{% else %}-{% endif %}</td>
+                  {% endif %}
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </article>
+      </div>
+
+      {% if ml_result.confusion_rows %}
+      <article class="ml-score-card ml-confusion-card">
+        <h3>Best Model Confusion Matrix</h3>
+        <div class="ml-table-wrap">
+          <table class="ml-score-table compact">
+            <thead>
+              <tr>
+                <th>Actual \ Predicted</th>
+                {% for cell in ml_result.confusion_rows[0].predicted %}
+                <th>{{ cell.label }}</th>
+                {% endfor %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in ml_result.confusion_rows %}
+              <tr>
+                <td>{{ row.actual }}</td>
+                {% for cell in row.predicted %}
+                <td>{{ cell.count }}</td>
+                {% endfor %}
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </article>
+      {% endif %}
+    </section>
+    {% elif selected_document and not error %}
+    <article class="eda-empty">
+      <h3>모델링 결과를 만들 수 없습니다</h3>
+      <p>target 컬럼 또는 학습 가능한 feature 구성을 확인하세요.</p>
+    </article>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

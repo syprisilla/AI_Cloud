@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+sqlalchemy
+pymysql
+jinja2
+python-multipart
+python-dotenv
+chromadb
+pypdf
+pandas
+matplotlib
+scikit-learn
+xgboost
+kaggle

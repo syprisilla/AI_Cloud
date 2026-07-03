@@ -1,0 +1,351 @@
+{% extends "dashboard_base.html" %}
+
+{% block styles %}
+<link rel="stylesheet" href="/static/eda.css?v=20260701-modeling-link-row" />
+{% endblock %}
+
+{% block content %}
+<section class="eda-container">
+  <header class="eda-header">
+    <a class="eda-back" href="{% if selected_document %}/eda/{{ selected_document.id }}?username={{ username }}{% else %}/dashboard?username={{ username }}{% endif %}">
+      {% if selected_document %}분석 선택으로{% else %}메인으로{% endif %}
+    </a>
+    <h2>{% if analysis_header.title %}{{ analysis_header.title }}{% elif selected_document %}{{ selected_document.title }} 분석{% else %}EDA 시각화{% endif %}</h2>
+    <p>{% if analysis_header.subtitle %}{{ analysis_header.subtitle }}{% else %}전처리된 CSV의 주요 수치 변수, 날짜별 변화, 요일별 패턴, 변수 간 관계를 탐색합니다.{% endif %}</p>
+  </header>
+
+  <div class="eda-content">
+    {% if error %}
+    <p class="eda-error">{{ error }}</p>
+    {% endif %}
+
+    {% if not selected_document %}
+    <section class="eda-metrics" aria-label="EDA 요약 지표">
+      <article>
+        <span>저장 데이터</span>
+        <strong>{{ pipeline_stats.source_count|default(0) }}</strong>
+      </article>
+      <article>
+        <span>DB Table</span>
+        <strong>{{ pipeline_stats.table_count|default(1) }}</strong>
+      </article>
+      <article>
+        <span>텍스트 문자 수</span>
+        <strong>{{ pipeline_stats.total_chars|default(0) }}</strong>
+      </article>
+      <article>
+        <span>CSV 자료</span>
+        <strong>{{ pipeline_stats.csv_count|default(0) }}</strong>
+      </article>
+    </section>
+    {% endif %}
+
+    {% if not selected_document %}
+    <section class="csv-file-section" aria-label="CSV 파일 선택">
+      <div class="eda-section-title">
+        <div>
+          <span>CSV Files</span>
+          <h3>분석할 CSV 선택</h3>
+        </div>
+        <a href="/documents/new?username={{ username }}">데이터 수집</a>
+      </div>
+
+      {% if csv_documents %}
+      <div class="csv-file-grid">
+        {% for csv_document in csv_documents %}
+        <a
+          class="csv-file-card {% if selected_document and selected_document.id == csv_document.id %}active{% endif %}"
+          href="/eda/{{ csv_document.id }}?username={{ username }}"
+        >
+          <div>
+            <strong>{{ csv_document.title }}</strong>
+            <small>{{ csv_document.created_at }}</small>
+          </div>
+          <span>분석 보기</span>
+        </a>
+        {% endfor %}
+      </div>
+      {% else %}
+      <article class="eda-empty">
+        <h3>분석할 CSV가 없습니다</h3>
+        <p>먼저 공공데이터 수집 화면에서 CSV 파일을 업로드하세요.</p>
+        <a href="/documents/new?username={{ username }}">데이터 수집하기</a>
+      </article>
+      {% endif %}
+    </section>
+    {% endif %}
+
+    {% if selected_document and eda_charts %}
+    {% if eda_charts.churn_target or eda_charts.churn_box_age or eda_charts.churn_box_calls or eda_charts.churn_box_monthlycharge or eda_charts.churn_rate_paymentmethod or eda_charts.churn_rate_region or eda_charts.csv_corr or eda_charts.churn_logit_rows %}
+    <section class="eda-filter-panel" aria-label="EDA 그래프 선택">
+      <button class="eda-filter-button active" type="button" data-eda-target="churn-target">클래스 분포</button>
+      {% if eda_charts.churn_box_age %}
+      <button class="eda-filter-button" type="button" data-eda-target="churn-age">age</button>
+      {% endif %}
+      {% if eda_charts.churn_box_calls %}
+      <button class="eda-filter-button" type="button" data-eda-target="churn-calls">calls</button>
+      {% endif %}
+      {% if eda_charts.churn_box_monthlycharge %}
+      <button class="eda-filter-button" type="button" data-eda-target="churn-monthly-charge">monthly_charge</button>
+      {% endif %}
+      {% if eda_charts.churn_rate_paymentmethod %}
+      <button class="eda-filter-button" type="button" data-eda-target="churn-payment">payment_method</button>
+      {% endif %}
+      {% if eda_charts.churn_rate_region %}
+      <button class="eda-filter-button" type="button" data-eda-target="churn-region">region</button>
+      {% endif %}
+      {% if eda_charts.csv_corr %}
+      <button class="eda-filter-button" type="button" data-eda-target="churn-corr">상관관계</button>
+      {% endif %}
+      {% if eda_charts.churn_logit_rows %}
+      <button class="eda-filter-button" type="button" data-eda-target="churn-odds">odds ratio</button>
+      {% endif %}
+    </section>
+    {% endif %}
+
+    <section class="eda-chart-grid" aria-label="matplotlib 시각화 결과">
+      {% if eda_charts.churn_target %}
+      <article class="eda-chart-card wide eda-filter-item" data-eda-panel="churn-target">
+        <h3>churn 클래스 분포</h3>
+        <img src="{{ eda_charts.churn_target }}" alt="churn 클래스 분포 그래프" />
+        <p>{{ eda_charts.churn_target_note }}</p>
+      </article>
+      {% endif %}
+
+      {% if eda_charts.churn_box_age %}
+      <article class="eda-chart-card wide eda-filter-item" data-eda-panel="churn-age">
+        <h3>이탈 여부별 age boxplot</h3>
+        <img src="{{ eda_charts.churn_box_age }}" alt="이탈 여부별 age boxplot" />
+        <p>{{ eda_charts.churn_box_age_note }}</p>
+      </article>
+      {% endif %}
+
+      {% if eda_charts.churn_box_calls %}
+      <article class="eda-chart-card wide eda-filter-item" data-eda-panel="churn-calls">
+        <h3>이탈 여부별 calls boxplot</h3>
+        <img src="{{ eda_charts.churn_box_calls }}" alt="이탈 여부별 calls boxplot" />
+        <p>{{ eda_charts.churn_box_calls_note }}</p>
+      </article>
+      {% endif %}
+
+      {% if eda_charts.churn_box_monthlycharge %}
+      <article class="eda-chart-card wide eda-filter-item" data-eda-panel="churn-monthly-charge">
+        <h3>이탈 여부별 monthly_charge boxplot</h3>
+        <img src="{{ eda_charts.churn_box_monthlycharge }}" alt="이탈 여부별 monthly_charge boxplot" />
+        <p>{{ eda_charts.churn_box_monthlycharge_note }}</p>
+      </article>
+      {% endif %}
+
+      {% if eda_charts.churn_rate_paymentmethod %}
+      <article class="eda-chart-card wide eda-filter-item" data-eda-panel="churn-payment">
+        <h3>payment_method별 이탈률</h3>
+        <img src="{{ eda_charts.churn_rate_paymentmethod }}" alt="payment_method별 이탈률 그래프" />
+        <p>{{ eda_charts.churn_rate_paymentmethod_note }}</p>
+      </article>
+      {% endif %}
+
+      {% if eda_charts.churn_rate_region %}
+      <article class="eda-chart-card wide eda-filter-item" data-eda-panel="churn-region">
+        <h3>region별 이탈률</h3>
+        <img src="{{ eda_charts.churn_rate_region }}" alt="region별 이탈률 그래프" />
+        <p>{{ eda_charts.churn_rate_region_note }}</p>
+      </article>
+      {% endif %}
+
+      {% if eda_charts.churn_logit_rows %}
+      <article class="eda-chart-card wide eda-filter-item" data-eda-panel="churn-odds">
+        <h3>로지스틱 해석: Odds Ratio = exp(coef)</h3>
+        <div class="preprocess-table-wrap">
+          <table class="preprocess-table">
+            <thead>
+              <tr>
+                <th>변수</th>
+                <th>계수</th>
+                <th>Odds Ratio</th>
+                <th>p-value</th>
+                <th>해석</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in eda_charts.churn_logit_rows %}
+              <tr>
+                <td>{{ row.feature }}</td>
+                <td>{{ row.coefficient }}</td>
+                <td>{{ row.odds_ratio }}</td>
+                <td>{{ row.p_value }}</td>
+                <td>{% if row.significant %}0.05 기준 유의{% else %}탐색 변수로 해석{% endif %}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <p>{{ eda_charts.churn_logit_note }}</p>
+      </article>
+      {% endif %}
+
+      {% if eda_charts.heart_target %}
+      <article class="eda-chart-card wide">
+        <h3>HeartDisease 발생 여부 분포</h3>
+        <img src="{{ eda_charts.heart_target }}" alt="HeartDisease 클래스 분포 그래프" />
+        <p>{{ eda_charts.heart_target_note }}</p>
+      </article>
+      {% endif %}
+
+      {% if eda_charts.heart_boxplot_by_target %}
+      <article class="eda-chart-card wide">
+        <h3>HeartDisease 여부별 핵심 수치 feature boxplot</h3>
+        <img src="{{ eda_charts.heart_boxplot_by_target }}" alt="HeartDisease 여부별 수치 feature boxplot" />
+        <p>{{ eda_charts.heart_boxplot_by_target_note }}</p>
+      </article>
+      {% endif %}
+
+      {% if eda_charts.heart_category_risk %}
+      <article class="eda-chart-card wide">
+        <h3>범주형 검진 정보별 발생 비율</h3>
+        <img src="{{ eda_charts.heart_category_risk }}" alt="범주형 feature별 HeartDisease 발생 비율 그래프" />
+        <p>{{ eda_charts.heart_category_risk_note }}</p>
+      </article>
+      {% endif %}
+
+      {% if eda_charts.heart_st_slope_risk %}
+      <article class="eda-chart-card wide">
+        <h3>ST slope별 HeartDisease 발생 비율</h3>
+        <img src="{{ eda_charts.heart_st_slope_risk }}" alt="ST slope별 HeartDisease 발생 비율 그래프" />
+        <p>{{ eda_charts.heart_st_slope_risk_note }}</p>
+      </article>
+      {% endif %}
+
+      {% if eda_charts.csv_numeric %}
+      <article class="eda-chart-card wide">
+        <h3>주요 수치 변수 평균/최댓값</h3>
+        <img src="{{ eda_charts.csv_numeric }}" alt="CSV 숫자 컬럼 평균과 최댓값 그래프" />
+        {% if eda_charts.csv_numeric_note %}
+        <p>{{ eda_charts.csv_numeric_note }}</p>
+        {% endif %}
+      </article>
+      {% endif %}
+
+      {% if eda_charts.csv_time %}
+      <article class="eda-chart-card wide">
+        <h3>날짜 기준 주요 수치 변화</h3>
+        <img src="{{ eda_charts.csv_time }}" alt="CSV 날짜 컬럼 기준 수치 추이 그래프" />
+        {% if eda_charts.csv_time_note %}
+        <p>{{ eda_charts.csv_time_note }}</p>
+        {% endif %}
+      </article>
+      {% endif %}
+
+      {% if eda_charts.csv_weekday %}
+      <article class="eda-chart-card wide">
+        <h3>요일별 주요 수치 평균</h3>
+        <img src="{{ eda_charts.csv_weekday }}" alt="요일별 주요 수치 평균 그래프" />
+        <p>{{ eda_charts.csv_weekday_note }}</p>
+      </article>
+      {% endif %}
+
+      {% if eda_charts.csv_corr %}
+      <article class="eda-chart-card wide {% if eda_charts.churn_target %}eda-filter-item{% endif %}" {% if eda_charts.churn_target %}data-eda-panel="churn-corr"{% endif %}>
+        <h3>변수 간 관계</h3>
+        <img src="{{ eda_charts.csv_corr }}" alt="주요 수치 변수 상관관계 히트맵" />
+        <p>{{ eda_charts.csv_corr_note }}</p>
+      </article>
+      {% endif %}
+    </section>
+
+    {% if selected_document and not error %}
+    <section class="eda-page-actions" aria-label="모델링 페이지 이동">
+      <a class="eda-page-action-button" href="/eda/{{ selected_document.id }}/modeling?username={{ username }}">
+        <span>Modeling</span>
+        <strong>모델링 페이지로 이동</strong>
+        <small>Train / Validation, F1 macro, Score Table, Confusion Matrix, Best Model 확인</small>
+      </a>
+    </section>
+    {% endif %}
+    {% elif selected_document and not error %}
+    <article class="eda-empty">
+      <h3>시각화할 수치 데이터를 찾지 못했습니다</h3>
+      <p>CSV는 읽혔지만 그래프를 만들 숫자형 또는 날짜형 컬럼이 부족합니다.</p>
+    </article>
+    {% endif %}
+
+    {% if selected_document and csv_profiles %}
+    <section class="csv-profile-grid" aria-label="CSV 내부 분석 요약">
+      {% for profile in csv_profiles %}
+      <article class="csv-profile-card">
+        <div class="csv-profile-heading">
+          <div>
+            <span>Dataset Summary</span>
+            <h3>전체 내용 요약</h3>
+          </div>
+          <strong>{{ profile.row_count }}행 · {{ profile.column_count }}열</strong>
+        </div>
+
+        <div class="csv-overview-card">
+          <div>
+            <span>{{ profile.title }}</span>
+            <h4>EDA 요약</h4>
+            <p>{{ profile.overview.summary }}</p>
+          </div>
+          <dl>
+            <div>
+              <dt>데이터 출처</dt>
+              <dd>{{ profile.overview.source }}</dd>
+            </div>
+            <div>
+              <dt>기간/범위</dt>
+              <dd>{{ profile.overview.period }}</dd>
+            </div>
+            <div>
+              <dt>데이터 구조</dt>
+              <dd>{{ profile.overview.structure }}</dd>
+            </div>
+            <div>
+              <dt>대표 변수</dt>
+              <dd>{{ profile.overview.columns }}</dd>
+            </div>
+            <div>
+              <dt>품질 상태</dt>
+              <dd>{{ profile.overview.quality }}</dd>
+            </div>
+          </dl>
+        </div>
+      </article>
+      {% endfor %}
+    </section>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.addEventListener("DOMContentLoaded", () => {
+    const buttons = Array.from(document.querySelectorAll(".eda-filter-button"));
+    const panels = Array.from(document.querySelectorAll(".eda-filter-item"));
+
+    if (!buttons.length || !panels.length) {
+      return;
+    }
+
+    const showPanel = (target) => {
+      panels.forEach((panel) => {
+        panel.classList.toggle("is-hidden", panel.dataset.edaPanel !== target);
+      });
+      buttons.forEach((button) => {
+        button.classList.toggle("active", button.dataset.edaTarget === target);
+      });
+    };
+
+    buttons.forEach((button) => {
+      button.addEventListener("click", () => showPanel(button.dataset.edaTarget));
+    });
+
+    const firstAvailableTarget = buttons.find((button) =>
+      panels.some((panel) => panel.dataset.edaPanel === button.dataset.edaTarget)
+    );
+    if (firstAvailableTarget) {
+      showPanel(firstAvailableTarget.dataset.edaTarget);
+    }
+  });
+</script>
+{% endblock %}

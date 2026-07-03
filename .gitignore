@@ -1,0 +1,86 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+kaggle.json
+**/kaggle.json
+*.key
+*.pem
+*.p12
+*.pfx
+*.crt
+*.cer
+*.secret
+access_token
+.kaggle/
+**/.kaggle/
+
+# Local database and runtime files
+*.db
+*.sqlite
+*.sqlite3
+*.log
+server.*.log
+
+# Uploaded/generated files
+uploads/
+chroma_db/
+.chroma/
+data_files/*
+!data_files/.gitkeep
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+data/customer_churn.csv
+.matplotlib_cache/
+*.zip
+*.tar
+*.tar.gz
+*.7z
+*.pkl
+*.pickle
+*.joblib
+*.onnx
+*.h5
+*.pt
+*.pth
+*.pdf
+*.xlsx
+*.xls
+*.csv
+!requirements.txt
+
+# Editor and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Codex/local agent metadata
+.agents/
+
+# Accidentally cloned nested repository folder
+pipeline/
+
+# Build/test cache
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+.claude/

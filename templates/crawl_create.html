@@ -1,0 +1,55 @@
+{% extends "dashboard_base.html" %}
+
+{% block styles %}
+<link rel="stylesheet" href="/static/create.css" />
+{% endblock %}
+
+{% block content %}
+<section class="create-container">
+  <header class="create-header">
+    <a class="create-back" href="/dashboard?username={{ username }}">메인으로</a>
+    <h2>웹 데이터 크롤링</h2>
+    <p>공공데이터 웹 페이지 URL을 입력하면 본문 또는 HTML 표를 추출해 DB 저장과 VectorDB 색인을 실행합니다.</p>
+  </header>
+
+  <div class="create-content">
+    {% if message %}
+    <p class="create-success">{{ message }}</p>
+    {% endif %}
+    {% if rag_error %}
+    <p class="create-error">{{ rag_error }}</p>
+    {% endif %}
+
+    <form action="/documents/crawl" method="post" class="create-form">
+      <input type="hidden" name="username" value="{{ username }}" />
+
+      <div class="create-field">
+        <label for="category_id">카테고리</label>
+        <select id="category_id" name="category_id">
+          <option value="">카테고리 없음</option>
+          {% for category in categories %}
+          <option value="{{ category.id }}">{{ category.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="create-field">
+        <label for="url">크롤링 URL</label>
+        <input
+          id="url"
+          name="url"
+          type="text"
+          placeholder="예: https://example.com/public-data-page"
+          value="{{ crawl_url }}"
+          required
+        />
+      </div>
+
+      <div class="create-actions">
+        <button type="submit">웹 크롤링·저장</button>
+        <a href="/documents/new?username={{ username }}">취소</a>
+      </div>
+    </form>
+  </div>
+</section>
+{% endblock %}
