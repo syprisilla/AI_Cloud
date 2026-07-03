@@ -1,4 +1,4 @@
-# Public Data RAG Workflow
+# AI 파이프라인 과제
 
 공공데이터, CSV, PDF, 텍스트 문서를 수집하고 저장한 뒤 VectorDB 기반 RAG 검색과 데이터 분석을 함께 제공하는 FastAPI 웹 서비스입니다.
 
