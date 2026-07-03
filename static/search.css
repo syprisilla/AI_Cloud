@@ -132,6 +132,12 @@
   color: var(--search-white);
   font-size: 14px;
   font-weight: 700;
+  text-decoration: none;
+  transition: var(--search-transition);
+}
+
+.filter-chip:hover {
+  background: rgba(255, 255, 255, 0.14);
 }
 
 .filter-chip.active {

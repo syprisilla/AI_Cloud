@@ -13,6 +13,7 @@
 
     <form class="search-form" action="/documents/search" method="get">
       <input type="hidden" name="username" value="{{ username }}" />
+      <input type="hidden" name="scope" value="{{ search_scope }}" />
       <div class="search-box">
         <span class="search-icon">⌕</span>
         <input
@@ -27,10 +28,22 @@
     </form>
 
     <div class="search-filter" aria-label="문서 검색 범위">
-      <span class="filter-chip active">전체</span>
-      <span class="filter-chip">제목</span>
-      <span class="filter-chip">본문</span>
-      <span class="filter-chip">최근 문서</span>
+      <a
+        class="filter-chip {% if search_scope == 'all' %}active{% endif %}"
+        href="/documents/search?username={{ username }}&keyword={{ keyword | urlencode }}&scope=all"
+      >전체</a>
+      <a
+        class="filter-chip {% if search_scope == 'title' %}active{% endif %}"
+        href="/documents/search?username={{ username }}&keyword={{ keyword | urlencode }}&scope=title"
+      >제목</a>
+      <a
+        class="filter-chip {% if search_scope == 'content' %}active{% endif %}"
+        href="/documents/search?username={{ username }}&keyword={{ keyword | urlencode }}&scope=content"
+      >본문</a>
+      <a
+        class="filter-chip {% if search_scope == 'recent' %}active{% endif %}"
+        href="/documents/search?username={{ username }}&keyword={{ keyword | urlencode }}&scope=recent"
+      >최근 문서</a>
     </div>
   </header>
 

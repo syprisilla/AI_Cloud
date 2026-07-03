@@ -403,6 +403,7 @@ def dashboard_context(
     active_view="home",
     selected_category_id=None,
     keyword="",
+    search_scope="all",
     rag_question="",
     rag_answer="",
     rag_sources=None,
@@ -431,6 +432,7 @@ def dashboard_context(
         "active_view": active_view,
         "selected_category_id": selected_category_id,
         "keyword": keyword,
+        "search_scope": search_scope,
         "rag_question": rag_question,
         "rag_answer": rag_answer,
         "rag_sources": rag_sources or [],
@@ -2650,29 +2652,43 @@ def search_documents(
     request: Request,
     username: str,
     keyword: str = "",
+    scope: str = "all",
     db: Session = Depends(get_db),
 ):
     ensure_default_churn_document(db)
     categories = db.query(Category).order_by(Category.name).all()
+    search_scope = scope if scope in {"all", "title", "content", "recent"} else "all"
+    query = db.query(Document)
 
     if keyword:
         search_word = f"%{keyword}%"
-        documents = (
-            db.query(Document)
-            .filter(
+        if search_scope == "title":
+            query = query.filter(Document.title.like(search_word))
+        elif search_scope == "content":
+            query = query.filter(Document.content.like(search_word))
+        else:
+            query = query.filter(
                 (Document.title.like(search_word))
                 | (Document.content.like(search_word))
             )
-            .order_by(Document.created_at.desc())
-            .all()
-        )
-    else:
-        documents = db.query(Document).order_by(Document.created_at.desc()).all()
+
+    query = query.order_by(Document.created_at.desc())
+    if search_scope == "recent":
+        query = query.limit(5)
+
+    documents = query.all()
 
     return templates.TemplateResponse(
         request,
         "document_search.html",
-        dashboard_context(username, documents, categories, active_view="search", keyword=keyword),
+        dashboard_context(
+            username,
+            documents,
+            categories,
+            active_view="search",
+            keyword=keyword,
+            search_scope=search_scope,
+        ),
     )
 
 
