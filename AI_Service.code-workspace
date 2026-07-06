@@ -1,0 +1,10 @@
+{
+  "folders": [
+	{
+		"path": "../AI_Service"
+	}
+],
+  "settings": {
+    "python-envs.defaultEnvManager": "ms-python.python:system"
+  }
+}

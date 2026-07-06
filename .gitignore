@@ -15,6 +15,22 @@ ENV/
 !.env.example
 kaggle.json
 **/kaggle.json
+credentials.json
+**/credentials.json
+client_secret*.json
+**/client_secret*.json
+service-account*.json
+service_account*.json
+**/service-account*.json
+**/service_account*.json
+*api_key*.json
+*apikey*.json
+*token*.json
+*secret*.json
+**/*api_key*.json
+**/*apikey*.json
+**/*token*.json
+**/*secret*.json
 *.key
 *.pem
 *.p12
@@ -22,7 +38,11 @@ kaggle.json
 *.crt
 *.cer
 *.secret
+*.token
 access_token
+access_token.*
+refresh_token
+refresh_token.*
 .kaggle/
 **/.kaggle/
 

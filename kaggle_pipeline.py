@@ -68,6 +68,80 @@ def _run_kaggle_download(dataset_id: str, raw_dir: Path) -> None:
         raise RuntimeError(f"Kaggle 다운로드에 실패했습니다: {message}")
 
 
+def _format_kaggle_error(message: str, action: str) -> str:
+    if "No module named kaggle" in message:
+        message = "현재 가상환경에 kaggle 패키지가 설치되어 있지 않습니다. requirements.txt 설치를 먼저 실행하세요."
+    if "Could not find kaggle.json" in message or "kaggle.json" in message:
+        message = (
+            f"{message}\n"
+            "확인할 것: Kaggle API Token(kaggle.json)을 C:\\Users\\<사용자>\\.kaggle\\kaggle.json 위치에 저장하거나 "
+            "KAGGLE_USERNAME, KAGGLE_KEY 환경변수를 설정하세요."
+        )
+    if "403" in message or "Forbidden" in message:
+        message = (
+            f"{message}\n"
+            "확인할 것: Kaggle 페이지에서 데이터셋 접근 권한이나 약관 동의가 필요한지, "
+            "노출된 API 토큰을 폐기한 뒤 새 토큰을 저장했는지 확인하세요."
+        )
+    return f"Kaggle {action}에 실패했습니다: {message}"
+
+
+def search_kaggle_datasets(keyword: str, limit: int = 10) -> list[dict]:
+    cleaned_keyword = keyword.strip()
+    if not cleaned_keyword:
+        return []
+
+    command = [
+        sys.executable,
+        "-m",
+        "kaggle",
+        "datasets",
+        "list",
+        "--search",
+        cleaned_keyword,
+        "--file-type",
+        "csv",
+        "--format",
+        "json",
+    ]
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, check=False, timeout=30)
+    except FileNotFoundError as error:
+        raise RuntimeError(
+            "Kaggle CLI를 실행할 수 없습니다. 현재 가상환경에 kaggle 패키지가 설치되어 있는지 확인하세요."
+        ) from error
+    except subprocess.TimeoutExpired as error:
+        raise RuntimeError("Kaggle 검색 응답이 지연되고 있습니다. 잠시 뒤 다시 시도하세요.") from error
+
+    if result.returncode != 0:
+        message = (result.stderr or result.stdout or "").strip()
+        raise RuntimeError(_format_kaggle_error(message, "검색"))
+
+    try:
+        rows = json.loads(result.stdout or "[]")
+    except json.JSONDecodeError as error:
+        raise RuntimeError("Kaggle 검색 결과를 해석하지 못했습니다.") from error
+
+    datasets = []
+    for row in rows[:limit]:
+        dataset_ref = str(row.get("ref") or "").strip()
+        if not dataset_ref:
+            continue
+        datasets.append(
+            {
+                "ref": dataset_ref,
+                "title": row.get("title") or dataset_ref,
+                "size": row.get("size") or row.get("totalBytes") or "",
+                "last_updated": row.get("lastUpdated") or "",
+                "download_count": row.get("downloadCount") or 0,
+                "vote_count": row.get("voteCount") or 0,
+                "usability_rating": row.get("usabilityRating") or "",
+                "url": f"https://www.kaggle.com/datasets/{dataset_ref}",
+            }
+        )
+    return datasets
+
+
 def _unzip_downloads(raw_dir: Path) -> None:
     for zip_path in raw_dir.glob("*.zip"):
         with zipfile.ZipFile(zip_path) as archive:

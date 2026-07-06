@@ -1,7 +1,7 @@
 {% extends "dashboard_base.html" %}
 
 {% block styles %}
-<link rel="stylesheet" href="/static/eda.css?v=20260630-source-ui" />
+<link rel="stylesheet" href="/static/eda.css?v=20260703-three-analysis-cards" />
 {% endblock %}
 
 {% block content %}
@@ -196,6 +196,12 @@
         <span>EDA</span>
         <strong>EDA 페이지</strong>
         <p>주요 수치 변수, 날짜별 변화, 요일별 패턴, 변수 간 관계를 그래프로 탐색합니다.</p>
+      </a>
+
+      <a class="analysis-choice-card" href="/eda/{{ selected_document.id }}/modeling?username={{ username }}">
+        <span>Modeling</span>
+        <strong>모델링 페이지</strong>
+        <p>Train / Validation 분할, 모델 학습, 성능 비교, Confusion Matrix, 최적 모델을 확인합니다.</p>
       </a>
     </section>
     {% endif %}

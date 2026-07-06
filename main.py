@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from database import Base, engine, get_db
 from crawler_pipeline import crawl_web_page
-from kaggle_pipeline import download_and_preprocess_dataset
+from kaggle_pipeline import download_and_preprocess_dataset, search_kaggle_datasets
 from models import Category, Document, User
 from rag import ask_rag, upsert_document
 
@@ -419,6 +419,8 @@ def dashboard_context(
     ml_result=None,
     preprocess_summary=None,
     kaggle_dataset_id="",
+    kaggle_search_keyword="",
+    kaggle_search_results=None,
     crawl_url="",
     source_info=None,
     feature_guide=None,
@@ -448,6 +450,8 @@ def dashboard_context(
         "ml_result": ml_result,
         "preprocess_summary": preprocess_summary,
         "kaggle_dataset_id": kaggle_dataset_id,
+        "kaggle_search_keyword": kaggle_search_keyword,
+        "kaggle_search_results": kaggle_search_results or [],
         "crawl_url": crawl_url,
         "source_info": source_info or {},
         "feature_guide": feature_guide or [],
@@ -2379,14 +2383,40 @@ def new_document_page(request: Request, username: str, db: Session = Depends(get
 
 
 @app.get("/documents/kaggle")
-def new_kaggle_document_page(request: Request, username: str, db: Session = Depends(get_db)):
+def new_kaggle_document_page(
+    request: Request,
+    username: str,
+    kaggle_search: str = "",
+    selected_dataset_id: str = "",
+    db: Session = Depends(get_db),
+):
     documents = db.query(Document).order_by(Document.created_at.desc()).all()
     categories = db.query(Category).order_by(Category.name).all()
+    search_keyword = kaggle_search.strip()
+    search_results = []
+    error = None
+
+    if search_keyword:
+        try:
+            search_results = search_kaggle_datasets(search_keyword)
+            if not search_results:
+                error = f"'{search_keyword}' 검색어로 찾은 CSV Kaggle 데이터셋이 없습니다."
+        except Exception as exc:
+            error = str(exc)
 
     return templates.TemplateResponse(
         request,
         "kaggle_create.html",
-        dashboard_context(username, documents, categories, active_view="create"),
+        dashboard_context(
+            username,
+            documents,
+            categories,
+            active_view="create",
+            rag_error=error,
+            kaggle_dataset_id=selected_dataset_id,
+            kaggle_search_keyword=search_keyword,
+            kaggle_search_results=search_results,
+        ),
     )
 
 

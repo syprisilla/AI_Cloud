@@ -76,6 +76,12 @@
   gap: 24px;
 }
 
+.kaggle-search-form {
+  margin-bottom: 24px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid #edf0f5;
+}
+
 .create-mode-bar {
   margin-bottom: 30px;
   display: inline-flex;
@@ -234,6 +240,75 @@
   background: #f9f9f9;
 }
 
+.kaggle-results {
+  margin: 0 0 28px;
+  display: grid;
+  gap: 12px;
+}
+
+.kaggle-result {
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border: 1px solid #e6e9f2;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.kaggle-result strong,
+.kaggle-result span {
+  display: block;
+}
+
+.kaggle-result strong {
+  color: var(--create-text);
+  font-size: 16px;
+}
+
+.kaggle-result span {
+  margin-top: 4px;
+  color: var(--create-primary-dark);
+  font-size: 14px;
+  font-weight: 800;
+  word-break: break-all;
+}
+
+.kaggle-result p {
+  margin: 8px 0 0;
+  color: var(--create-muted);
+  font-size: 13px;
+}
+
+.kaggle-result-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 8px;
+}
+
+.kaggle-result-actions a {
+  min-height: 38px;
+  padding: 0 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.kaggle-result-actions a:first-child {
+  border: 1px solid #e1e1e1;
+  color: var(--create-muted);
+}
+
+.kaggle-result-actions a:last-child {
+  background: var(--create-primary);
+  color: var(--create-white);
+}
+
 .create-success,
 .create-error {
   margin: 0 0 20px;
@@ -273,6 +348,12 @@
   }
 
   .create-actions {
+    flex-direction: column;
+  }
+
+  .kaggle-result,
+  .kaggle-result-actions {
+    align-items: stretch;
     flex-direction: column;
   }
 

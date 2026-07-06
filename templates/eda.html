@@ -1,7 +1,7 @@
 {% extends "dashboard_base.html" %}
 
 {% block styles %}
-<link rel="stylesheet" href="/static/eda.css?v=20260701-modeling-link-row" />
+<link rel="stylesheet" href="/static/eda.css?v=20260703-eda-only" />
 {% endblock %}
 
 {% block content %}
@@ -252,15 +252,6 @@
       {% endif %}
     </section>
 
-    {% if selected_document and not error %}
-    <section class="eda-page-actions" aria-label="모델링 페이지 이동">
-      <a class="eda-page-action-button" href="/eda/{{ selected_document.id }}/modeling?username={{ username }}">
-        <span>Modeling</span>
-        <strong>모델링 페이지로 이동</strong>
-        <small>Train / Validation, F1 macro, Score Table, Confusion Matrix, Best Model 확인</small>
-      </a>
-    </section>
-    {% endif %}
     {% elif selected_document and not error %}
     <article class="eda-empty">
       <h3>시각화할 수치 데이터를 찾지 못했습니다</h3>

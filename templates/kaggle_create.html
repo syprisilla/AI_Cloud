@@ -9,7 +9,7 @@
   <header class="create-header">
     <a class="create-back" href="/dashboard?username={{ username }}">메인으로</a>
     <h2>Kaggle 데이터 수집</h2>
-    <p>Kaggle Dataset ID를 입력하면 원본 다운로드, CSV 전처리, metadata 저장, VectorDB 색인을 자동으로 실행합니다.</p>
+    <p>키워드로 Kaggle 데이터셋을 찾거나 Dataset ID를 입력하면 다운로드, CSV 전처리, VectorDB 색인을 자동으로 실행합니다.</p>
   </header>
 
   <div class="create-content">
@@ -18,6 +18,44 @@
     {% endif %}
     {% if rag_error %}
     <p class="create-error">{{ rag_error }}</p>
+    {% endif %}
+
+    <form action="/documents/kaggle" method="get" class="create-form kaggle-search-form">
+      <input type="hidden" name="username" value="{{ username }}" />
+      <div class="create-field">
+        <label for="kaggle_search">Kaggle 키워드 검색</label>
+        <input
+          id="kaggle_search"
+          name="kaggle_search"
+          type="search"
+          placeholder="예: heart disease, iris, customer churn"
+          value="{{ kaggle_search_keyword }}"
+        />
+      </div>
+      <div class="create-actions">
+        <button type="submit">데이터셋 검색</button>
+      </div>
+    </form>
+
+    {% if kaggle_search_results %}
+    <div class="kaggle-results">
+      {% for dataset in kaggle_search_results %}
+      <article class="kaggle-result">
+        <div>
+          <strong>{{ dataset.title }}</strong>
+          <span>{{ dataset.ref }}</span>
+          <p>
+            크기 {{ dataset.size or '-' }} · 다운로드 {{ dataset.download_count }} · 투표 {{ dataset.vote_count }}
+            {% if dataset.usability_rating %} · 사용성 {{ dataset.usability_rating }}{% endif %}
+          </p>
+        </div>
+        <div class="kaggle-result-actions">
+          <a href="{{ dataset.url }}" target="_blank" rel="noopener">Kaggle</a>
+          <a href="/documents/kaggle?username={{ username }}&kaggle_search={{ kaggle_search_keyword | urlencode }}&selected_dataset_id={{ dataset.ref | urlencode }}">선택</a>
+        </div>
+      </article>
+      {% endfor %}
+    </div>
     {% endif %}
 
     <form action="/documents/kaggle" method="post" class="create-form">
@@ -40,7 +78,7 @@
           name="dataset_id"
           type="text"
           placeholder="예: fedesoriano/heart-failure-prediction"
-          value="{{ kaggle_dataset_id or 'fedesoriano/heart-failure-prediction' }}"
+          value="{{ kaggle_dataset_id or '' }}"
           required
         />
       </div>
