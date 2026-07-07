@@ -56,7 +56,7 @@
       {% for document in documents %}
       <article class="search-result-item">
         <div>
-          <h4>{{ document.title }}</h4>
+          <h4>{{ document.display_title }}</h4>
           {% if document.category %}
           <small>{{ document.category.name }}</small>
           {% endif %}

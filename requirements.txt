@@ -5,6 +5,7 @@ pymysql
 jinja2
 python-multipart
 python-dotenv
+openai
 chromadb
 pypdf
 pandas

@@ -74,9 +74,15 @@
         <tbody>
           {% for document in documents %}
           <tr
-            data-search="{{ document.title }} {% if document.category %}{{ document.category.name }}{% else %}카테고리 없음{% endif %} {{ document.content }}"
+            data-search="{{ document.display_title }} {{ document.title }} {% if document.category %}{{ document.category.name }}{% else %}카테고리 없음{% endif %} {{ document.content }}"
           >
-            <td class="document-title-cell">{{ document.title }}</td>
+            <td class="document-title-cell">
+              <form class="display-name-form" action="/documents/{{ document.id }}/display-name" method="post">
+                <input type="hidden" name="username" value="{{ username }}" />
+                <input type="text" name="display_name" value="{{ document.display_title }}" aria-label="표시 이름" />
+                <button type="submit">저장</button>
+              </form>
+            </td>
             <td>
               <span class="document-category-pill">
                 {% if document.category %}{{ document.category.name }}{% else %}없음{% endif %}

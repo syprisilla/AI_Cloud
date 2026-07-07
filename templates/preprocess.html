@@ -10,7 +10,7 @@
     <a class="eda-back" href="{% if selected_document %}/eda/{{ selected_document.id }}?username={{ username }}{% else %}/dashboard?username={{ username }}{% endif %}">
       {% if selected_document %}분석 선택으로{% else %}메인으로{% endif %}
     </a>
-    <h2>{% if analysis_header.title %}{{ analysis_header.title }}{% elif selected_document %}{{ selected_document.title }} 전처리{% else %}전처리 점검{% endif %}</h2>
+    <h2>{% if analysis_header.title %}{{ analysis_header.title }}{% elif selected_document %}{{ selected_document.display_title }} 전처리{% else %}전처리 점검{% endif %}</h2>
     <p>{% if analysis_header.subtitle %}{{ analysis_header.subtitle }}{% else %}CSV 파일을 분석하기 전에 결측치, 날짜 변환, 이상치, 수치형 변수, 범주형 인코딩 상태를 확인합니다.{% endif %}</p>
   </header>
 
@@ -58,7 +58,7 @@
           href="/preprocess/{{ csv_document.id }}?username={{ username }}"
         >
           <div>
-            <strong>{{ csv_document.title }}</strong>
+            <strong>{{ csv_document.display_title }}</strong>
             <small>{{ csv_document.created_at }}</small>
           </div>
           <span>전처리 보기</span>
@@ -76,6 +76,40 @@
     {% endif %}
 
     {% if selected_document and eda_charts %}
+    {% if eda_charts.column_type_rows %}
+    <section class="preprocess-detail-panel" aria-label="자동 컬럼 유형 분류">
+      <div class="preprocess-detail-heading">
+        <span>Column Types</span>
+        <h3>자동 컬럼 유형 분류</h3>
+        <p>CSV 구조를 읽어 수치형, 범주형, 날짜형, 식별자 후보를 나눕니다.</p>
+      </div>
+      <div class="preprocess-table-wrap">
+        <table class="preprocess-table">
+          <thead>
+            <tr>
+              <th>컬럼</th>
+              <th>유형</th>
+              <th>결측치</th>
+              <th>고유값</th>
+              <th>판단 기준</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in eda_charts.column_type_rows %}
+            <tr>
+              <td>{{ row.column }}</td>
+              <td>{{ row.type }}</td>
+              <td>{{ row.missing }}</td>
+              <td>{{ row.unique }}</td>
+              <td>{{ row.reason }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+    {% endif %}
+
     {% if eda_charts.preprocess_mapping_rows %}
     <section class="preprocess-detail-panel" aria-label="원본 변수와 전처리 변수 매핑">
       <div class="preprocess-detail-heading">

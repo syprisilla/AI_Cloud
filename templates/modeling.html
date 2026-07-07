@@ -10,13 +10,58 @@
     <a class="eda-back" href="{% if selected_document %}/eda/{{ selected_document.id }}/charts?username={{ username }}{% else %}/eda?username={{ username }}{% endif %}">
       EDA 페이지로
     </a>
-    <h2>{% if analysis_header.title %}{{ analysis_header.title }}{% elif selected_document %}{{ selected_document.title }} 모델링{% else %}모델링 결과{% endif %}</h2>
+    <h2>{% if analysis_header.title %}{{ analysis_header.title }}{% elif selected_document %}{{ selected_document.display_title }} 모델링{% else %}모델링 결과{% endif %}</h2>
     <p>{% if analysis_header.subtitle %}{{ analysis_header.subtitle }}{% else %}Train/Validation 분할과 모델별 F1 macro, Score Table, Confusion Matrix, Best Model을 확인합니다.{% endif %}</p>
   </header>
 
   <div class="eda-content">
     {% if error %}
     <p class="eda-error">{{ error }}</p>
+    {% endif %}
+
+    {% if selected_document and target_candidates %}
+    <section class="preprocess-detail-panel" aria-label="모델링 target 선택">
+      <div class="preprocess-detail-heading">
+        <span>Target Selection</span>
+        <h3>예측 target 선택</h3>
+        <p>자동 추천 후보를 기준으로 모델링을 실행합니다. 다른 target으로 다시 실행할 수 있습니다.</p>
+      </div>
+      <form class="target-select-form" method="get" action="/eda/{{ selected_document.id }}/modeling">
+        <input type="hidden" name="username" value="{{ username }}" />
+        <select name="target_column" aria-label="target 컬럼 선택">
+          {% for candidate in target_candidates %}
+          <option value="{{ candidate.column }}" {% if target_column == candidate.column %}selected{% endif %}>
+            {{ candidate.column }} · {{ candidate.task_type }} · {{ candidate.reason }}
+          </option>
+          {% endfor %}
+        </select>
+        <button type="submit">모델링 실행</button>
+      </form>
+      <div class="preprocess-table-wrap">
+        <table class="preprocess-table">
+          <thead>
+            <tr>
+              <th>후보</th>
+              <th>문제 유형</th>
+              <th>고유값</th>
+              <th>결측치</th>
+              <th>추천 이유</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for candidate in target_candidates %}
+            <tr>
+              <td>{{ candidate.column }}{% if candidate.recommended %} · 추천{% endif %}</td>
+              <td>{{ candidate.task_type }}</td>
+              <td>{{ candidate.unique_count }}</td>
+              <td>{{ candidate.missing_count }}</td>
+              <td>{{ candidate.reason }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
     {% endif %}
 
     {% if ml_result %}

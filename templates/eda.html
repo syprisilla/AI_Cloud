@@ -10,7 +10,7 @@
     <a class="eda-back" href="{% if selected_document %}/eda/{{ selected_document.id }}?username={{ username }}{% else %}/dashboard?username={{ username }}{% endif %}">
       {% if selected_document %}분석 선택으로{% else %}메인으로{% endif %}
     </a>
-    <h2>{% if analysis_header.title %}{{ analysis_header.title }}{% elif selected_document %}{{ selected_document.title }} 분석{% else %}EDA 시각화{% endif %}</h2>
+    <h2>{% if analysis_header.title %}{{ analysis_header.title }}{% elif selected_document %}{{ selected_document.display_title }} 분석{% else %}EDA 시각화{% endif %}</h2>
     <p>{% if analysis_header.subtitle %}{{ analysis_header.subtitle }}{% else %}전처리된 CSV의 주요 수치 변수, 날짜별 변화, 요일별 패턴, 변수 간 관계를 탐색합니다.{% endif %}</p>
   </header>
 
@@ -58,7 +58,7 @@
           href="/eda/{{ csv_document.id }}?username={{ username }}"
         >
           <div>
-            <strong>{{ csv_document.title }}</strong>
+            <strong>{{ csv_document.display_title }}</strong>
             <small>{{ csv_document.created_at }}</small>
           </div>
           <span>분석 보기</span>
@@ -75,31 +75,12 @@
     </section>
     {% endif %}
 
-    {% if selected_document and eda_charts %}
-    {% if eda_charts.churn_target or eda_charts.churn_box_age or eda_charts.churn_box_calls or eda_charts.churn_box_monthlycharge or eda_charts.churn_rate_paymentmethod or eda_charts.churn_rate_region or eda_charts.csv_corr or eda_charts.churn_logit_rows %}
+    {% if selected_document and eda_charts.eda_tabs %}
+    {% if eda_charts.eda_tabs %}
     <section class="eda-filter-panel" aria-label="EDA 그래프 선택">
-      <button class="eda-filter-button active" type="button" data-eda-target="churn-target">클래스 분포</button>
-      {% if eda_charts.churn_box_age %}
-      <button class="eda-filter-button" type="button" data-eda-target="churn-age">age</button>
-      {% endif %}
-      {% if eda_charts.churn_box_calls %}
-      <button class="eda-filter-button" type="button" data-eda-target="churn-calls">calls</button>
-      {% endif %}
-      {% if eda_charts.churn_box_monthlycharge %}
-      <button class="eda-filter-button" type="button" data-eda-target="churn-monthly-charge">monthly_charge</button>
-      {% endif %}
-      {% if eda_charts.churn_rate_paymentmethod %}
-      <button class="eda-filter-button" type="button" data-eda-target="churn-payment">payment_method</button>
-      {% endif %}
-      {% if eda_charts.churn_rate_region %}
-      <button class="eda-filter-button" type="button" data-eda-target="churn-region">region</button>
-      {% endif %}
-      {% if eda_charts.csv_corr %}
-      <button class="eda-filter-button" type="button" data-eda-target="churn-corr">상관관계</button>
-      {% endif %}
-      {% if eda_charts.churn_logit_rows %}
-      <button class="eda-filter-button" type="button" data-eda-target="churn-odds">odds ratio</button>
-      {% endif %}
+      {% for tab in eda_charts.eda_tabs %}
+      <button class="eda-filter-button {% if loop.first %}active{% endif %}" type="button" data-eda-target="{{ tab.panel }}">{{ tab.label }}</button>
+      {% endfor %}
     </section>
     {% endif %}
 
@@ -184,7 +165,7 @@
       {% endif %}
 
       {% if eda_charts.heart_target %}
-      <article class="eda-chart-card wide">
+      <article class="eda-chart-card wide eda-filter-item" data-eda-panel="heart-target">
         <h3>HeartDisease 발생 여부 분포</h3>
         <img src="{{ eda_charts.heart_target }}" alt="HeartDisease 클래스 분포 그래프" />
         <p>{{ eda_charts.heart_target_note }}</p>
@@ -192,7 +173,7 @@
       {% endif %}
 
       {% if eda_charts.heart_boxplot_by_target %}
-      <article class="eda-chart-card wide">
+      <article class="eda-chart-card wide eda-filter-item" data-eda-panel="heart-boxplot">
         <h3>HeartDisease 여부별 핵심 수치 feature boxplot</h3>
         <img src="{{ eda_charts.heart_boxplot_by_target }}" alt="HeartDisease 여부별 수치 feature boxplot" />
         <p>{{ eda_charts.heart_boxplot_by_target_note }}</p>
@@ -200,7 +181,7 @@
       {% endif %}
 
       {% if eda_charts.heart_category_risk %}
-      <article class="eda-chart-card wide">
+      <article class="eda-chart-card wide eda-filter-item" data-eda-panel="heart-category-risk">
         <h3>범주형 검진 정보별 발생 비율</h3>
         <img src="{{ eda_charts.heart_category_risk }}" alt="범주형 feature별 HeartDisease 발생 비율 그래프" />
         <p>{{ eda_charts.heart_category_risk_note }}</p>
@@ -208,15 +189,55 @@
       {% endif %}
 
       {% if eda_charts.heart_st_slope_risk %}
-      <article class="eda-chart-card wide">
+      <article class="eda-chart-card wide eda-filter-item" data-eda-panel="heart-st-slope">
         <h3>ST slope별 HeartDisease 발생 비율</h3>
         <img src="{{ eda_charts.heart_st_slope_risk }}" alt="ST slope별 HeartDisease 발생 비율 그래프" />
         <p>{{ eda_charts.heart_st_slope_risk_note }}</p>
       </article>
       {% endif %}
 
+      {% if eda_charts.generic_target_distribution %}
+      <article class="eda-chart-card wide eda-filter-item" data-eda-panel="generic-target">
+        <h3>추천 target 후보 분포</h3>
+        <img src="{{ eda_charts.generic_target_distribution }}" alt="추천 target 후보 분포 그래프" />
+        <p>{{ eda_charts.generic_target_distribution_note }}</p>
+      </article>
+      {% endif %}
+
+      {% if eda_charts.generic_numeric_distribution %}
+      <article class="eda-chart-card wide eda-filter-item" data-eda-panel="generic-numeric">
+        <h3>수치형 컬럼 분포</h3>
+        <img src="{{ eda_charts.generic_numeric_distribution }}" alt="수치형 컬럼 분포 그래프" />
+        <p>{{ eda_charts.generic_numeric_distribution_note }}</p>
+      </article>
+      {% endif %}
+
+      {% if eda_charts.generic_outlier_boxplot %}
+      <article class="eda-chart-card wide eda-filter-item" data-eda-panel="generic-outlier">
+        <h3>수치형 이상치 후보</h3>
+        <img src="{{ eda_charts.generic_outlier_boxplot }}" alt="수치형 이상치 후보 박스플롯" />
+        <p>{{ eda_charts.generic_outlier_boxplot_note }}</p>
+      </article>
+      {% endif %}
+
+      {% if eda_charts.generic_category_frequency %}
+      <article class="eda-chart-card wide eda-filter-item" data-eda-panel="generic-category">
+        <h3>범주형 빈도</h3>
+        <img src="{{ eda_charts.generic_category_frequency }}" alt="범주형 빈도 그래프" />
+        <p>{{ eda_charts.generic_category_frequency_note }}</p>
+      </article>
+      {% endif %}
+
+      {% if eda_charts.generic_target_numeric_relation %}
+      <article class="eda-chart-card wide eda-filter-item" data-eda-panel="generic-target-relation">
+        <h3>target별 feature 차이</h3>
+        <img src="{{ eda_charts.generic_target_numeric_relation }}" alt="target과 수치형 feature 관계 그래프" />
+        <p>{{ eda_charts.generic_target_numeric_relation_note }}</p>
+      </article>
+      {% endif %}
+
       {% if eda_charts.csv_numeric %}
-      <article class="eda-chart-card wide">
+      <article class="eda-chart-card wide eda-filter-item" data-eda-panel="csv-numeric-summary">
         <h3>주요 수치 변수 평균/최댓값</h3>
         <img src="{{ eda_charts.csv_numeric }}" alt="CSV 숫자 컬럼 평균과 최댓값 그래프" />
         {% if eda_charts.csv_numeric_note %}
@@ -226,7 +247,7 @@
       {% endif %}
 
       {% if eda_charts.csv_time %}
-      <article class="eda-chart-card wide">
+      <article class="eda-chart-card wide eda-filter-item" data-eda-panel="csv-time">
         <h3>날짜 기준 주요 수치 변화</h3>
         <img src="{{ eda_charts.csv_time }}" alt="CSV 날짜 컬럼 기준 수치 추이 그래프" />
         {% if eda_charts.csv_time_note %}
@@ -236,7 +257,7 @@
       {% endif %}
 
       {% if eda_charts.csv_weekday %}
-      <article class="eda-chart-card wide">
+      <article class="eda-chart-card wide eda-filter-item" data-eda-panel="csv-weekday">
         <h3>요일별 주요 수치 평균</h3>
         <img src="{{ eda_charts.csv_weekday }}" alt="요일별 주요 수치 평균 그래프" />
         <p>{{ eda_charts.csv_weekday_note }}</p>
@@ -244,7 +265,7 @@
       {% endif %}
 
       {% if eda_charts.csv_corr %}
-      <article class="eda-chart-card wide {% if eda_charts.churn_target %}eda-filter-item{% endif %}" {% if eda_charts.churn_target %}data-eda-panel="churn-corr"{% endif %}>
+      <article class="eda-chart-card wide eda-filter-item" data-eda-panel="csv-corr">
         <h3>변수 간 관계</h3>
         <img src="{{ eda_charts.csv_corr }}" alt="주요 수치 변수 상관관계 히트맵" />
         <p>{{ eda_charts.csv_corr_note }}</p>

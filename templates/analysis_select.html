@@ -8,7 +8,7 @@
 <section class="eda-container">
   <header class="eda-header">
     <a class="eda-back" href="/eda?username={{ username }}">CSV 선택으로</a>
-    <h2>{% if analysis_header.title %}{{ analysis_header.title }}{% elif selected_document %}{{ selected_document.title }}{% else %}분석 선택{% endif %}</h2>
+    <h2>{% if analysis_header.title %}{{ analysis_header.title }}{% elif selected_document %}{{ selected_document.display_title }}{% else %}분석 선택{% endif %}</h2>
     <p>{% if analysis_header.subtitle %}{{ analysis_header.subtitle }}{% else %}선택한 CSV를 전처리 관점으로 볼지, EDA 탐색 관점으로 볼지 선택하세요.{% endif %}</p>
   </header>
 
@@ -183,6 +183,42 @@
       </div>
     </section>
     {% endif %}
+    {% endif %}
+
+    {% if csv_profile %}
+    <section class="feature-guide-panel" aria-label="범용 CSV 컬럼 분석">
+      <div class="feature-guide-heading">
+        <span>Generic CSV Profile</span>
+        <h3>자동 컬럼 분류와 target 후보</h3>
+        <p>{{ csv_profile.overview.structure }} {{ csv_profile.overview.quality }}</p>
+      </div>
+      {% if csv_profile.target_candidates %}
+      <div class="feature-guide-table-wrap">
+        <table class="feature-guide-table">
+          <thead>
+            <tr>
+              <th>Target 후보</th>
+              <th>문제 유형</th>
+              <th>고유값</th>
+              <th>추천 이유</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for candidate in csv_profile.target_candidates %}
+            <tr>
+              <td>{{ candidate.column }}{% if candidate.recommended %} · 추천{% endif %}</td>
+              <td>{{ candidate.task_type }}</td>
+              <td>{{ candidate.unique_count }}</td>
+              <td>{{ candidate.reason }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="eda-error">자동으로 추천할 target 후보가 없습니다. 전처리/EDA는 가능하지만 모델링은 사용자가 적절한 예측 대상 컬럼을 정해야 합니다.</p>
+      {% endif %}
+    </section>
     {% endif %}
 
     <section class="analysis-choice-grid" aria-label="분석 페이지 선택">

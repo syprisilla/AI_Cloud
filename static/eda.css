@@ -740,8 +740,41 @@
 }
 
 .preprocess-table-wrap {
-  width: 100%;
-  overflow-x: auto;
+    width: 100%;
+    overflow-x: auto;
+}
+
+.target-select-form {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    margin: 16px 0;
+}
+
+.target-select-form select {
+    min-width: 0;
+    height: 42px;
+    border: 1px solid #d7deea;
+    border-radius: 8px;
+    padding: 0 12px;
+    background: #fff;
+    color: #172033;
+    font-size: 14px;
+}
+
+.target-select-form button {
+    height: 42px;
+    border: 0;
+    border-radius: 8px;
+    padding: 0 16px;
+    background: #2f5ae5;
+    color: #fff;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.target-select-form button:hover {
+    background: #2447b8;
 }
 
 .preprocess-table {

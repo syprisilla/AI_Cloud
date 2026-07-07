@@ -159,6 +159,33 @@
   background: rgba(74, 111, 227, 0.05);
 }
 
+.display-name-form {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) auto;
+  gap: 8px;
+}
+
+.display-name-form input {
+  min-width: 0;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid #d8dce8;
+  border-radius: 8px;
+  color: var(--list-text);
+  font: inherit;
+}
+
+.display-name-form button {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--list-primary);
+  color: #fff;
+  font-weight: 800;
+  cursor: pointer;
+}
+
 .document-table th:nth-child(1),
 .document-table td:nth-child(1) {
   width: 27%;

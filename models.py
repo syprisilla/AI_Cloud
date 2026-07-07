@@ -1,4 +1,5 @@
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy.dialects.mysql import LONGTEXT
 from sqlalchemy.orm import relationship
 
 from database import Base
@@ -29,6 +30,7 @@ class Document(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String(200), nullable=False)
+    display_name = Column(String(200), nullable=True)
     content = Column(Text, nullable=False)
     category_id = Column(Integer, ForeignKey("categories.id"), nullable=True)
     source_type = Column(String(50), nullable=True)
@@ -52,7 +54,7 @@ class ModelResult(Base):
     best_model = Column(String(100), nullable=True)
     primary_metric = Column(String(100), nullable=True)
     valid_score = Column(String(50), nullable=True)
-    metrics_json = Column(Text, nullable=True)
+    metrics_json = Column(LONGTEXT, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
 
     document = relationship("Document")

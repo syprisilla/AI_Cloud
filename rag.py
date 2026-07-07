@@ -3,8 +3,6 @@ import json
 import math
 import os
 from io import StringIO
-import urllib.error
-import urllib.request
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -17,7 +15,7 @@ COLLECTION_NAME = "documents"
 EMBEDDING_DIMENSION = 384
 CHUNK_SIZE = 500
 CHUNK_OVERLAP = 100
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
 RAG_RESULT_LIMIT = 5
 
 
@@ -190,9 +188,9 @@ def build_context(sources):
 
 
 def generate_ai_answer(question, sources):
-    api_key = os.getenv("GEMINI_API_KEY")
+    api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
-        raise RuntimeError(".env에 GEMINI_API_KEY가 설정되어 있지 않습니다.")
+        raise RuntimeError(".env에 OPENAI_API_KEY가 설정되어 있지 않습니다.")
 
     context = build_context(sources)
     prompt = (
@@ -206,54 +204,30 @@ def generate_ai_answer(question, sources):
         "위 참고 문서를 근거로 완성된 답변을 작성해줘."
     )
 
-    request_body = {
-        "contents": [
-            {
-                "parts": [{"text": prompt}],
-            }
-        ],
-        "generationConfig": {
-            "temperature": 0.2,
-            "maxOutputTokens": 1200,
-        },
-    }
-
-    url = (
-        "https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{GEMINI_MODEL}:generateContent?key={api_key}"
-    )
-    request = urllib.request.Request(
-        url,
-        data=json.dumps(request_body).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            response_body = json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as error:
-        error_body = error.read().decode("utf-8")
-        if error.code == 429:
-            raise RuntimeError("Gemini API 요청 한도를 초과했습니다. 잠시 후 다시 시도해주세요.") from error
-        raise RuntimeError(f"Gemini API 요청 실패 ({error.code})") from error
-    except urllib.error.URLError as error:
-        raise RuntimeError(f"Gemini API 연결 실패: {error.reason}") from error
+        try:
+            from openai import OpenAI
+        except ImportError as error:
+            raise RuntimeError(
+                "OpenAI SDK가 설치되어 있지 않습니다. python -m pip install -r requirements.txt 를 실행하세요."
+            ) from error
 
-    candidates = response_body.get("candidates", [])
-    if not candidates:
-        raise RuntimeError("Gemini가 답변을 반환하지 않았습니다.")
+        client = OpenAI(api_key=api_key)
 
-    finish_reason = candidates[0].get("finishReason")
-    parts = candidates[0].get("content", {}).get("parts", [])
-    answer_parts = [part.get("text", "") for part in parts]
-    answer = "".join(answer_parts).strip()
+        response = client.responses.create(
+            model=OPENAI_MODEL,
+            input=prompt,
+            temperature=0.2,
+            max_output_tokens=1200,
+        )
+
+        answer = response.output_text.strip()
+
+    except Exception as error:
+        raise RuntimeError(f"OpenAI API 요청 실패: {error}") from error
 
     if not answer:
-        raise RuntimeError("Gemini 답변이 비어 있습니다.")
-
-    if finish_reason == "MAX_TOKENS":
-        answer += "\n\n답변이 길어져 일부가 생략되었습니다. 질문 범위를 조금 좁히면 더 완성된 답변을 받을 수 있습니다."
+        raise RuntimeError("OpenAI 답변이 비어 있습니다.")
 
     return answer
 

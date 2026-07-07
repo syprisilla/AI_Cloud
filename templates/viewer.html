@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>{{ document.title }}</title>
+    <title>{{ document.display_title }}</title>
     <style>
       * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -90,7 +90,7 @@
   <body>
     <header class="viewer-header">
       <a class="viewer-back" href="javascript:history.back()">← 돌아가기</a>
-      <span class="viewer-title">{{ document.title }}</span>
+      <span class="viewer-title">{{ document.display_title }}</span>
     </header>
 
     <div class="viewer-body">

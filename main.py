@@ -2,6 +2,7 @@ import os
 import base64
 import json
 import re
+import warnings
 from io import BytesIO, StringIO
 from pathlib import Path
 
@@ -35,6 +36,7 @@ def ensure_pipeline_schema():
     if "documents" in inspector.get_table_names():
         existing_columns = {column["name"] for column in inspector.get_columns("documents")}
         document_columns = {
+            "display_name": "VARCHAR(200) NULL",
             "source_type": "VARCHAR(50) NULL",
             "source_url": "VARCHAR(500) NULL",
             "file_path": "VARCHAR(500) NULL",
@@ -100,6 +102,12 @@ def normalized_column_name(column):
     return str(column).lower().replace("_", "").replace(" ", "")
 
 
+def parse_datetime_series(series, pd):
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        return pd.to_datetime(series, errors="coerce")
+
+
 def is_heart_dataset(dataframe=None, title=""):
     title_text = (title or "").lower()
     title_match = any(keyword in title_text for keyword in ("heart", "cardio", "심장"))
@@ -128,6 +136,81 @@ def dataset_column(dataframe, normalized_name):
         if normalized_column_name(column) == target:
             return column
     return None
+
+
+def humanize_filename_title(title):
+    stem = Path(str(title or "데이터")).stem
+    stem = re.sub(r"_processed$", "", stem, flags=re.IGNORECASE)
+    stem = stem.replace("__", "_").replace("-", " ").replace("_", " ")
+    stem = re.sub(r"\s+", " ", stem).strip()
+    return stem or str(title or "데이터")
+
+
+def infer_display_name(title="", content="", dataframe=None):
+    title_text = str(title or "")
+    normalized_title = normalized_column_name(title_text)
+    columns_text = ""
+    if dataframe is not None:
+        columns_text = " ".join(str(column) for column in dataframe.columns)
+    normalized_columns = normalized_column_name(columns_text)
+    combined = f"{normalized_title} {normalized_columns}"
+
+    if "churn" in combined or "customerchurn" in combined or "고객이탈" in combined:
+        return "고객 이탈 데이터"
+    if "heart" in combined or "cardio" in combined or "heartdisease" in combined or "심장" in combined:
+        return "심장 질환 데이터"
+    if (
+        ("child" in combined or "children" in combined or "아동" in combined)
+        and ("mother" in combined or "mom" in combined or "어머니" in combined)
+        and "iq" in combined
+    ):
+        return "아동-어머니 IQ 데이터"
+
+    readable = humanize_filename_title(title_text)
+    readable = re.sub(r"\b(csv|data|dataset|processed)\b", "", readable, flags=re.IGNORECASE)
+    readable = re.sub(r"\s+", " ", readable).strip()
+    if readable:
+        return f"{readable} 데이터"
+    return "CSV 데이터"
+
+
+def display_document_title(document):
+    if not document:
+        return ""
+    display_name = getattr(document, "display_name", None)
+    if display_name:
+        return display_name
+
+    dataframe = None
+    if str(document.title or "").lower().endswith(".csv") and document.content:
+        try:
+            import pandas as pd
+
+            dataframe = pd.read_csv(StringIO(document.content), nrows=20)
+        except Exception:
+            dataframe = None
+    return infer_display_name(document.title, document.content or "", dataframe)
+
+
+def attach_display_titles(documents):
+    for document in documents or []:
+        try:
+            document.display_title = display_document_title(document)
+        except Exception:
+            document.display_title = getattr(document, "display_name", None) or document.title
+    return documents
+
+
+def infer_display_name_from_csv_content(title, content):
+    dataframe = None
+    if str(title or "").lower().endswith(".csv") and content:
+        try:
+            import pandas as pd
+
+            dataframe = pd.read_csv(StringIO(content), nrows=50)
+        except Exception:
+            dataframe = None
+    return infer_display_name(title, content or "", dataframe)
 
 
 def heart_column(dataframe, normalized_name):
@@ -311,6 +394,7 @@ def build_churn_preprocess_mapping_rows():
 def build_analysis_header(document, view_name):
     if not document:
         return {}
+    display_title = display_document_title(document)
 
     if is_churn_dataset(title=document.title):
         view_titles = {
@@ -328,7 +412,16 @@ def build_analysis_header(document, view_name):
         }
 
     if not is_heart_dataset(title=document.title):
-        return {}
+        suffix_map = {
+            "select": "분석 선택",
+            "preprocess": "전처리",
+            "eda": "EDA",
+            "modeling": "모델링",
+        }
+        return {
+            "title": f"{display_title} {suffix_map.get(view_name, '분석')}",
+            "subtitle": "CSV 컬럼 구조를 자동으로 분석해 가능한 전처리, EDA, 모델링 항목을 생성합니다.",
+        }
 
     view_titles = {
         "select": "심장질환 예측 데이터 분석 선택",
@@ -338,7 +431,7 @@ def build_analysis_header(document, view_name):
     return {
         "title": view_titles.get(view_name, "심장질환 예측 데이터 분석"),
         "subtitle": (
-            f"원본 데이터셋 파일명은 {document.title}이지만, 실제 예측 target은 HeartDisease입니다. "
+            f"원본 데이터셋 파일명은 {document.title}이지만, 화면에는 {display_title}로 표시합니다. 실제 예측 target은 HeartDisease입니다. "
             "따라서 서비스 제목과 분석 설명은 심장질환 예측으로 통일합니다."
         ),
     }
@@ -436,9 +529,11 @@ def dashboard_context(
     pipeline_stats=None,
     eda_charts=None,
     csv_profiles=None,
+    csv_profile=None,
     csv_documents=None,
     selected_document=None,
     target_column="",
+    target_candidates=None,
     ml_result=None,
     preprocess_summary=None,
     kaggle_dataset_id="",
@@ -450,6 +545,10 @@ def dashboard_context(
     schema_info=None,
     analysis_header=None,
 ):
+    attach_display_titles(documents)
+    attach_display_titles(csv_documents or [])
+    if selected_document:
+        attach_display_titles([selected_document])
     return {
         "username": username,
         "documents": documents,
@@ -467,9 +566,11 @@ def dashboard_context(
         "pipeline_stats": pipeline_stats or {},
         "eda_charts": eda_charts or {},
         "csv_profiles": csv_profiles or [],
+        "csv_profile": csv_profile or {},
         "csv_documents": csv_documents or [],
         "selected_document": selected_document,
         "target_column": target_column,
+        "target_candidates": target_candidates or [],
         "ml_result": ml_result,
         "preprocess_summary": preprocess_summary,
         "kaggle_dataset_id": kaggle_dataset_id,
@@ -535,6 +636,7 @@ def ensure_default_churn_document(db: Session):
     if document is None:
         document = Document(
             title=DEFAULT_CHURN_DATASET_TITLE,
+            display_name="고객 이탈 데이터",
             content=csv_content,
             category_id=category.id,
             source_type="seed_csv",
@@ -560,6 +662,9 @@ def ensure_default_churn_document(db: Session):
         changed = True
     if document.category_id != category.id:
         document.category_id = category.id
+        changed = True
+    if not getattr(document, "display_name", None):
+        document.display_name = "고객 이탈 데이터"
         changed = True
     default_lineage = {
         "source_type": "seed_csv",
@@ -828,6 +933,36 @@ def make_chart_uri(fig):
     return "data:image/png;base64," + base64.b64encode(buffer.read()).decode("ascii")
 
 
+def build_eda_tabs(charts):
+    tab_specs = [
+        ("churn_target", "churn-target", "클래스 분포"),
+        ("churn_box_age", "churn-age", "age"),
+        ("churn_box_calls", "churn-calls", "calls"),
+        ("churn_box_monthlycharge", "churn-monthly-charge", "monthly_charge"),
+        ("churn_rate_paymentmethod", "churn-payment", "payment_method"),
+        ("churn_rate_region", "churn-region", "region"),
+        ("churn_logit_rows", "churn-odds", "odds ratio"),
+        ("heart_target", "heart-target", "target 분포"),
+        ("heart_boxplot_by_target", "heart-boxplot", "수치형 분포"),
+        ("heart_category_risk", "heart-category-risk", "범주형 비율"),
+        ("heart_st_slope_risk", "heart-st-slope", "ST slope"),
+        ("generic_target_distribution", "generic-target", "target 후보 분포"),
+        ("generic_numeric_distribution", "generic-numeric", "수치형 분포"),
+        ("generic_outlier_boxplot", "generic-outlier", "이상치 후보"),
+        ("generic_category_frequency", "generic-category", "범주형 빈도"),
+        ("generic_target_numeric_relation", "generic-target-relation", "target별 차이"),
+        ("csv_numeric", "csv-numeric-summary", "컬럼 분포"),
+        ("csv_time", "csv-time", "날짜 추이"),
+        ("csv_weekday", "csv-weekday", "요일 패턴"),
+        ("csv_corr", "csv-corr", "상관관계"),
+    ]
+    return [
+        {"key": key, "panel": panel, "label": label}
+        for key, panel, label in tab_specs
+        if charts.get(key)
+    ]
+
+
 def build_churn_logit_rows(dataframe, pd):
     target_column = churn_column(dataframe, "churn")
     if not target_column:
@@ -949,7 +1084,7 @@ def normalize_csv_dataframe_for_analysis(dataframe, pd):
             normalized[column] = converted_numeric
             continue
 
-        converted_date = pd.to_datetime(text_series, errors="coerce")
+        converted_date = parse_datetime_series(text_series, pd)
         date_ratio = converted_date.notna().mean()
         if date_ratio >= 0.6:
             normalized[column] = converted_date
@@ -957,36 +1092,207 @@ def normalize_csv_dataframe_for_analysis(dataframe, pd):
     return normalized
 
 
-def build_csv_profile(document, dataframe, pd):
-    title = document.title
+def is_probable_identifier(column_name, series):
+    normalized_name = normalized_column_name(column_name)
+    if normalized_name in {"id", "idx", "index", "no", "number", "seq"}:
+        return True
+    if normalized_name.endswith("id") or normalized_name.endswith("no"):
+        return series.nunique(dropna=True) >= max(10, len(series) * 0.7)
+    return series.nunique(dropna=True) == len(series) and len(series) > 20
+
+
+def classify_csv_columns(dataframe, pd):
     numeric_columns = dataframe.select_dtypes(include="number").columns.tolist()
     date_columns = []
+    categorical_columns = []
+    identifier_columns = []
+    constant_columns = []
 
     for column in dataframe.columns:
+        series = dataframe[column]
+        unique_count = int(series.nunique(dropna=True))
+        if unique_count <= 1:
+            constant_columns.append(column)
+        if is_probable_identifier(column, series):
+            identifier_columns.append(column)
+
         if column in numeric_columns:
             continue
 
-        parsed = pd.to_datetime(dataframe[column], errors="coerce")
+        parsed = parse_datetime_series(series, pd)
         if parsed.notna().mean() >= 0.6:
             date_columns.append(column)
+        else:
+            categorical_columns.append(column)
 
+    target_candidates = recommend_target_columns(
+        dataframe,
+        pd,
+        numeric_columns,
+        categorical_columns,
+        date_columns,
+        identifier_columns,
+        constant_columns,
+    )
+
+    column_rows = []
+    for column in dataframe.columns:
+        if column in identifier_columns:
+            detected_type = "식별자"
+            reason = "행을 구분하는 고유값 성격이 강해 feature/target에서 제외 후보입니다."
+        elif column in constant_columns:
+            detected_type = "상수"
+            reason = "값이 거의 하나뿐이라 모델 학습 정보가 부족합니다."
+        elif column in date_columns:
+            detected_type = "날짜형"
+            reason = "datetime으로 변환 가능한 값 비율이 높습니다."
+        elif column in numeric_columns:
+            detected_type = "수치형"
+            reason = "분포, 이상치, 상관관계 분석에 사용합니다."
+        else:
+            detected_type = "범주형"
+            reason = "빈도, 비율, target별 차이 분석에 사용합니다."
+        column_rows.append(
+            {
+                "column": column,
+                "type": detected_type,
+                "missing": int(dataframe[column].isna().sum()),
+                "unique": int(dataframe[column].nunique(dropna=True)),
+                "reason": reason,
+            }
+        )
+
+    return {
+        "numeric_columns": numeric_columns,
+        "categorical_columns": categorical_columns,
+        "date_columns": date_columns,
+        "identifier_columns": identifier_columns,
+        "constant_columns": constant_columns,
+        "target_candidates": target_candidates,
+        "column_rows": column_rows,
+    }
+
+
+def recommend_target_columns(
+    dataframe,
+    pd,
+    numeric_columns,
+    categorical_columns,
+    date_columns,
+    identifier_columns,
+    constant_columns,
+):
+    target_keywords = {
+        "target",
+        "label",
+        "class",
+        "outcome",
+        "result",
+        "status",
+        "flag",
+        "return",
+        "returned",
+        "churn",
+        "survived",
+        "disease",
+        "default",
+        "fraud",
+        "success",
+        "price",
+        "amount",
+        "sales",
+        "revenue",
+        "score",
+        "rating",
+        "value",
+    }
+    candidates = []
+    row_count = max(len(dataframe), 1)
+
+    for index, column in enumerate(dataframe.columns):
+        if column in date_columns or column in identifier_columns or column in constant_columns:
+            continue
+        series = dataframe[column].dropna()
+        if series.empty:
+            continue
+
+        normalized_name = normalized_column_name(column)
+        unique_count = int(series.nunique())
+        unique_ratio = unique_count / row_count
+        is_numeric = column in numeric_columns
+        task_type = "회귀" if is_numeric and (unique_count > 10 or unique_ratio > 0.2) else "분류"
+        score = 0
+        reasons = []
+
+        matched_keywords = [keyword for keyword in target_keywords if keyword in normalized_name]
+        if normalized_name in {"y", "targety"}:
+            matched_keywords.append("y")
+        if matched_keywords:
+            score += 8
+            reasons.append(f"컬럼명에 target 후보 키워드({', '.join(matched_keywords[:3])})가 포함됨")
+        if unique_count == 2:
+            score += 5
+            reasons.append("이진 분류 target으로 쓰기 좋은 2개 값")
+        elif task_type == "분류" and 3 <= unique_count <= min(20, max(3, row_count // 3)):
+            score += 3
+            reasons.append(f"{unique_count}개 범주를 가진 분류 후보")
+        elif task_type == "회귀":
+            score += 2
+            reasons.append("연속형 수치 예측 후보")
+        if index == len(dataframe.columns) - 1:
+            score += 2
+            reasons.append("CSV의 마지막 컬럼")
+        if unique_ratio > 0.8 and not matched_keywords:
+            score -= 4
+            reasons.append("고유값 비율이 높아 식별자일 가능성 있음")
+        if unique_count < 2:
+            score -= 10
+
+        if score <= 0:
+            continue
+        candidates.append(
+            {
+                "column": column,
+                "score": score,
+                "task_type": task_type,
+                "unique_count": unique_count,
+                "missing_count": int(dataframe[column].isna().sum()),
+                "reason": " / ".join(reasons) if reasons else "모델링 target 후보로 사용할 수 있는 값 구조",
+                "recommended": False,
+            }
+        )
+
+    candidates.sort(key=lambda row: row["score"], reverse=True)
+    for row in candidates[:5]:
+        row["recommended"] = row is candidates[0]
+    return candidates[:8]
+
+
+def auto_target_column(dataframe, pd):
+    profile = classify_csv_columns(dataframe, pd)
+    candidates = profile["target_candidates"]
+    return candidates[0]["column"] if candidates else ""
+
+
+def build_csv_profile(document, dataframe, pd):
+    title = display_document_title(document)
+    original_title = document.title
+    column_profile = classify_csv_columns(dataframe, pd)
+    numeric_columns = column_profile["numeric_columns"]
+    date_columns = column_profile["date_columns"]
     missing_counts = dataframe.isna().sum()
     top_missing = [
         {"column": column, "count": int(count)}
         for column, count in missing_counts.sort_values(ascending=False).head(5).items()
         if int(count) > 0
     ]
-    categorical_columns = [
-        column
-        for column in dataframe.columns
-        if column not in numeric_columns and column not in date_columns
-    ]
+    categorical_columns = column_profile["categorical_columns"]
     total_cells = len(dataframe) * len(dataframe.columns)
     missing_total = int(missing_counts.sum())
     missing_ratio = (missing_total / total_cells * 100) if total_cells else 0
 
     lower_columns = {column.lower(): column for column in dataframe.columns}
-    lower_title = title.lower()
+    lower_title = original_title.lower()
     if is_churn_dataset(dataframe, title):
         data_domain = "고객 이탈 예측 데이터"
         data_character = "고객의 이용량, 요금, 문의 횟수, 계약 기간, 결제 방식, 지역 같은 feature로 churn 여부를 분석하고 예측하는 데 적합합니다."
@@ -1018,7 +1324,7 @@ def build_csv_profile(document, dataframe, pd):
         period_text = "명확한 날짜 범위는 감지되지 않았습니다."
     if date_columns:
         date_column = date_columns[0]
-        parsed_dates = pd.to_datetime(dataframe[date_column], errors="coerce").dropna()
+        parsed_dates = parse_datetime_series(dataframe[date_column], pd).dropna()
         if not parsed_dates.empty:
             start_date = parsed_dates.min().date()
             end_date = parsed_dates.max().date()
@@ -1048,9 +1354,12 @@ def build_csv_profile(document, dataframe, pd):
     elif is_heart_dataset(dataframe, title) and heart_target:
         target_counts = dataframe[heart_target].value_counts(dropna=False).to_dict()
         quality_text = f"{quality_text} Target HeartDisease 클래스 분포는 {target_counts}입니다."
+    elif column_profile["target_candidates"]:
+        candidate = column_profile["target_candidates"][0]
+        quality_text = f"{quality_text} 모델링 target 후보로는 '{candidate['column']}' 컬럼을 우선 추천합니다. 추천 이유: {candidate['reason']}."
 
     overview = {
-        "source": f"{title} 파일에서 읽어온 데이터입니다. 앱에는 '{category_name}' 카테고리로 저장되어 있으며 저장 시각은 {created_at}입니다.",
+        "source": f"{title} 파일에서 읽어온 데이터입니다. 원본 파일명은 {original_title}이며 앱에는 '{category_name}' 카테고리로 저장되어 있습니다. 저장 시각은 {created_at}입니다.",
         "summary": f"{data_domain}로 보이며, 총 {len(dataframe)}개의 관측 행과 {len(dataframe.columns)}개의 변수로 구성되어 있습니다. {data_character}",
         "period": period_text,
         "structure": f"수치형 변수 {len(numeric_columns)}개, 범주/문자형 변수 {len(categorical_columns)}개, 날짜형 변수 {len(date_columns)}개가 감지되었습니다.",
@@ -1066,6 +1375,8 @@ def build_csv_profile(document, dataframe, pd):
         "numeric_columns": numeric_columns,
         "categorical_columns": categorical_columns,
         "date_columns": date_columns,
+        "identifier_columns": column_profile["identifier_columns"],
+        "target_candidates": column_profile["target_candidates"],
         "top_missing": top_missing,
         "overview": overview,
     }
@@ -1169,6 +1480,11 @@ def build_eda_charts(documents, include_storage_charts=True):
         churn_target = churn_column(csv_dataframe, "churn")
         heart_dataset = is_heart_dataset(csv_dataframe, csv_title)
         heart_target = heart_column(csv_dataframe, "HeartDisease")
+        column_profile = classify_csv_columns(csv_dataframe, pd)
+        target_candidates = column_profile["target_candidates"]
+        generic_target = target_candidates[0]["column"] if target_candidates else ""
+        charts["target_candidates"] = target_candidates
+        charts["column_type_rows"] = column_profile["column_rows"]
 
         if churn_dataset and churn_target:
             churn_frame = csv_dataframe.copy()
@@ -1341,6 +1657,126 @@ def build_eda_charts(documents, include_storage_charts=True):
                     charts["heart_st_slope_risk_note"] = f"ST slope 기준 HeartDisease 발생 비율은 {highest_st_slope} 그룹에서 가장 높고 {lowest_st_slope} 그룹에서 가장 낮게 나타났습니다. 따라서 ST slope는 심장질환 발생 여부를 구분하는 핵심 범주형 변수로 볼 수 있습니다."
                 plt.close(fig_st_slope)
 
+        if generic_target and not (churn_dataset and churn_target) and not (heart_dataset and heart_target):
+            target_series = csv_dataframe[generic_target]
+            target_unique_count = target_series.nunique(dropna=True)
+            if target_unique_count <= 20:
+                target_counts = target_series.value_counts(dropna=False).head(20)
+                fig_generic_target, ax_generic_target = plt.subplots(figsize=(7.8, 4.5))
+                target_counts.plot(kind="bar", ax=ax_generic_target, color="#4a6fe3")
+                ax_generic_target.set_title(f"{generic_target} target 후보 분포")
+                ax_generic_target.set_xlabel(generic_target)
+                ax_generic_target.set_ylabel("행 수")
+                ax_generic_target.grid(axis="y", alpha=0.22)
+                ax_generic_target.tick_params(axis="x", rotation=20)
+                charts["generic_target_distribution"] = make_chart_uri(fig_generic_target)
+                charts["generic_target_distribution_note"] = (
+                    f"자동 추천 target 후보 '{generic_target}'의 값 분포입니다. "
+                    f"서로 다른 값은 {target_unique_count}개이며, 모델링 페이지에서 다른 후보로 바꿔 실행할 수도 있습니다."
+                )
+                plt.close(fig_generic_target)
+            elif pd.api.types.is_numeric_dtype(target_series):
+                fig_generic_target, ax_generic_target = plt.subplots(figsize=(7.8, 4.5))
+                pd.to_numeric(target_series, errors="coerce").dropna().plot(kind="hist", bins=20, ax=ax_generic_target, color="#4a6fe3")
+                ax_generic_target.set_title(f"{generic_target} target 후보 분포")
+                ax_generic_target.set_xlabel(generic_target)
+                ax_generic_target.set_ylabel("빈도")
+                ax_generic_target.grid(axis="y", alpha=0.22)
+                charts["generic_target_distribution"] = make_chart_uri(fig_generic_target)
+                charts["generic_target_distribution_note"] = (
+                    f"자동 추천 target 후보 '{generic_target}'는 연속형 수치로 보여 회귀 문제로 처리할 가능성이 큽니다. "
+                    "분포가 한쪽으로 치우치면 로그 변환이나 이상치 점검이 필요할 수 있습니다."
+                )
+                plt.close(fig_generic_target)
+
+        generic_numeric_columns = [
+            column
+            for column in analysis_numeric_dataframe.columns.tolist()
+            if column != generic_target
+        ][:4]
+        if generic_numeric_columns and not (churn_dataset and churn_target) and not (heart_dataset and heart_target):
+            fig_dist, axes = plt.subplots(1, len(generic_numeric_columns), figsize=(3.1 * len(generic_numeric_columns), 4.2), squeeze=False)
+            for axis, column in zip(axes[0], generic_numeric_columns):
+                pd.to_numeric(csv_dataframe[column], errors="coerce").dropna().plot(kind="hist", bins=18, ax=axis, color="#50c878")
+                axis.set_title(column)
+                axis.set_xlabel("값")
+                axis.set_ylabel("빈도")
+                axis.grid(axis="y", alpha=0.22)
+            fig_dist.tight_layout()
+            charts["generic_numeric_distribution"] = make_chart_uri(fig_dist)
+            charts["generic_numeric_distribution_note"] = f"{', '.join(generic_numeric_columns)} 컬럼의 분포를 확인했습니다. 치우침, 긴 꼬리, 다봉 분포가 있으면 모델링 전 변환 후보입니다."
+            plt.close(fig_dist)
+
+            fig_outlier, ax_outlier = plt.subplots(figsize=(7.8, 4.5))
+            csv_dataframe[generic_numeric_columns].apply(pd.to_numeric, errors="coerce").plot(kind="box", ax=ax_outlier, rot=25)
+            ax_outlier.set_title("주요 수치형 컬럼 이상치 분포")
+            ax_outlier.grid(axis="y", alpha=0.22)
+            charts["generic_outlier_boxplot"] = make_chart_uri(fig_outlier)
+            outlier_counts = []
+            for column in generic_numeric_columns:
+                values = pd.to_numeric(csv_dataframe[column], errors="coerce").dropna()
+                q1 = values.quantile(0.25)
+                q3 = values.quantile(0.75)
+                iqr = q3 - q1
+                if pd.notna(iqr) and iqr > 0:
+                    outlier_counts.append((column, int(((values < q1 - 1.5 * iqr) | (values > q3 + 1.5 * iqr)).sum())))
+            outlier_text = ", ".join(f"{column} {count}개" for column, count in outlier_counts) or "감지된 이상치 없음"
+            charts["generic_outlier_boxplot_note"] = f"IQR 기준 이상치 후보는 {outlier_text}입니다. 전처리 페이지에서는 이 값을 삭제하지 않고 경계값 조정 대상으로 설명합니다."
+            plt.close(fig_outlier)
+
+        generic_categorical_columns = [
+            column
+            for column in column_profile["categorical_columns"]
+            if column != generic_target and csv_dataframe[column].nunique(dropna=True) <= 30
+        ][:3]
+        if generic_categorical_columns and not (churn_dataset and churn_target) and not (heart_dataset and heart_target):
+            category_column = generic_categorical_columns[0]
+            category_counts = csv_dataframe[category_column].fillna("missing").value_counts().head(12)
+            fig_category, ax_category = plt.subplots(figsize=(7.8, 4.5))
+            category_counts.plot(kind="bar", ax=ax_category, color="#8b5cf6")
+            ax_category.set_title(f"{category_column} 범주 빈도")
+            ax_category.set_xlabel(category_column)
+            ax_category.set_ylabel("행 수")
+            ax_category.grid(axis="y", alpha=0.22)
+            ax_category.tick_params(axis="x", rotation=25)
+            charts["generic_category_frequency"] = make_chart_uri(fig_category)
+            top_category = category_counts.index[0]
+            charts["generic_category_frequency_note"] = f"{category_column}에서 가장 많은 범주는 '{top_category}'입니다. 범주 비율이 한쪽으로 몰려 있으면 모델이 다수 범주에 치우칠 수 있습니다."
+            plt.close(fig_category)
+
+        if generic_target and generic_numeric_columns and not (churn_dataset and churn_target) and not (heart_dataset and heart_target):
+            target_candidate = next((candidate for candidate in target_candidates if candidate["column"] == generic_target), None)
+            if target_candidate and target_candidate["task_type"] == "분류" and csv_dataframe[generic_target].nunique(dropna=True) <= 12:
+                relation_columns = generic_numeric_columns[:3]
+                relation_frame = csv_dataframe[[generic_target] + relation_columns].copy()
+                for column in relation_columns:
+                    relation_frame[column] = pd.to_numeric(relation_frame[column], errors="coerce")
+                target_means = relation_frame.groupby(generic_target)[relation_columns].mean().head(12)
+                fig_relation, ax_relation = plt.subplots(figsize=(7.8, 4.5))
+                target_means.plot(kind="bar", ax=ax_relation)
+                ax_relation.set_title(f"{generic_target}별 수치형 평균 차이")
+                ax_relation.set_xlabel(generic_target)
+                ax_relation.set_ylabel("평균")
+                ax_relation.grid(axis="y", alpha=0.22)
+                ax_relation.tick_params(axis="x", rotation=20)
+                charts["generic_target_numeric_relation"] = make_chart_uri(fig_relation)
+                charts["generic_target_numeric_relation_note"] = f"{generic_target} 값별로 {', '.join(relation_columns)} 평균 차이를 비교했습니다. 그룹 간 차이가 큰 변수는 모델링에서 중요한 feature 후보입니다."
+                plt.close(fig_relation)
+            elif target_candidate and target_candidate["task_type"] == "회귀" and generic_target in analysis_numeric_dataframe.columns and len(analysis_numeric_dataframe.columns) >= 2:
+                corr_with_target = analysis_numeric_dataframe.corr(numeric_only=True)[generic_target].drop(labels=[generic_target], errors="ignore").abs().sort_values(ascending=False).head(8)
+                if not corr_with_target.empty:
+                    fig_relation, ax_relation = plt.subplots(figsize=(7.8, 4.5))
+                    corr_with_target.plot(kind="bar", ax=ax_relation, color="#ef4444")
+                    ax_relation.set_title(f"{generic_target}와 수치형 feature 상관관계")
+                    ax_relation.set_xlabel("feature")
+                    ax_relation.set_ylabel("절대 상관계수")
+                    ax_relation.grid(axis="y", alpha=0.22)
+                    ax_relation.tick_params(axis="x", rotation=25)
+                    charts["generic_target_numeric_relation"] = make_chart_uri(fig_relation)
+                    top_feature = corr_with_target.index[0]
+                    charts["generic_target_numeric_relation_note"] = f"{generic_target}와 가장 상관이 큰 수치형 feature는 {top_feature}입니다. 상관관계는 선형 관계 점검용이며 인과로 해석하지 않습니다."
+                    plt.close(fig_relation)
+
         if not heart_dataset and not churn_dataset and not analysis_numeric_dataframe.empty:
             numeric_summary = (
                 analysis_numeric_dataframe.agg(["mean", "max"])
@@ -1367,7 +1803,7 @@ def build_eda_charts(documents, include_storage_charts=True):
         for column in csv_dataframe.columns:
             if column in numeric_dataframe.columns:
                 continue
-            candidate_dates = pd.to_datetime(csv_dataframe[column], errors="coerce")
+            candidate_dates = parse_datetime_series(csv_dataframe[column], pd)
             if candidate_dates.notna().mean() >= 0.6:
                 date_column = column
                 parsed_dates = candidate_dates
@@ -1469,6 +1905,8 @@ def build_eda_charts(documents, include_storage_charts=True):
                 charts["csv_corr_note"] = f"상관관계가 가장 강한 조합은 {strongest_pair[0]}와 {strongest_pair[1]}이며, 상관계수는 {strongest_value:.2f}입니다."
             plt.close(fig_corr)
 
+    charts["eda_tabs"] = build_eda_tabs(charts)
+
     return {
         "charts": charts,
         "csv_profiles": csv_profiles,
@@ -1503,20 +1941,12 @@ def build_preprocess_charts(documents):
     if csv_frames:
         first_csv = csv_frames[0]
         csv_dataframe = first_csv["dataframe"]
-        numeric_columns = csv_dataframe.select_dtypes(include="number").columns.tolist()
-        date_columns = []
-        for column in csv_dataframe.columns:
-            if column in numeric_columns:
-                continue
-            parsed = pd.to_datetime(csv_dataframe[column], errors="coerce")
-            if parsed.notna().mean() >= 0.6:
-                date_columns.append(column)
-
-        categorical_columns = [
-            column
-            for column in csv_dataframe.columns
-            if column not in numeric_columns and column not in date_columns
-        ]
+        column_profile = classify_csv_columns(csv_dataframe, pd)
+        numeric_columns = column_profile["numeric_columns"]
+        date_columns = column_profile["date_columns"]
+        categorical_columns = column_profile["categorical_columns"]
+        charts["column_type_rows"] = column_profile["column_rows"]
+        charts["target_candidates"] = column_profile["target_candidates"]
         churn_dataset = is_churn_dataset(csv_dataframe, first_csv["title"])
         heart_dataset = is_heart_dataset(csv_dataframe, first_csv["title"])
         heart_zero_missing_columns = [
@@ -1542,7 +1972,7 @@ def build_preprocess_charts(documents):
         processed_dataframe = csv_dataframe.drop_duplicates().copy()
 
         for column in date_columns:
-            processed_dataframe[column] = pd.to_datetime(processed_dataframe[column], errors="coerce")
+            processed_dataframe[column] = parse_datetime_series(processed_dataframe[column], pd)
         for column in numeric_columns:
             numeric_series = pd.to_numeric(processed_dataframe[column], errors="coerce")
             if heart_dataset and column in heart_zero_missing_columns:
@@ -1745,6 +2175,16 @@ def build_preprocess_charts(documents):
                 "after": "LabelEncoding 완료",
                 "method": "문자열 범주를 숫자 코드로 변환",
             }
+            charts["preprocess_step_rows"] = [
+                {"step": "컬럼 자동 분류", "evidence": f"수치형 {len(numeric_columns)}개, 범주형 {len(categorical_columns)}개, 날짜형 {len(date_columns)}개, 식별자 후보 {len(column_profile['identifier_columns'])}개"},
+                {"step": "target 후보 추천", "evidence": column_profile["target_candidates"][0]["reason"] if column_profile["target_candidates"] else "명확한 target 후보가 없어 모델링 페이지에서 설명 메시지를 제공합니다."},
+                {"step": "isnull()", "evidence": f"NaN 결측치 {int(before_missing.sum())}개"},
+                {"step": "duplicated()", "evidence": f"중복 행 {before_duplicate_count}개"},
+                {"step": "타입 변환", "evidence": f"숫자로 해석 가능한 문자열은 수치형으로, 날짜로 해석 가능한 문자열은 datetime으로 변환"},
+                {"step": "IQR 이상치", "evidence": f"IQR 기준 이상치 {iqr_outlier_count}개, 행 삭제 없이 클리핑 기준 확인"},
+                {"step": "인코딩/스케일링", "evidence": "모델링 시 범주형은 LabelEncoding, 수치형 feature는 StandardScaler 적용"},
+                {"step": "data split", "evidence": "train 70% / validation 30%, 분류 문제는 가능한 경우 stratify로 클래스 비율 유지"},
+            ]
         charts["preprocess_table_rows"] = [
             {
                 "item": "NaN 결측치",
@@ -1807,6 +2247,11 @@ def build_preprocess_charts(documents):
                 "일반적인 NaN 결측치는 발견되지 않았지만, cholesterol 0값과 restingbp 0값은 실제 의학적 수치로 보기 어려워 결측성 이상치로 판단했습니다. "
                 "결측성 0값은 중앙값으로 대체하고, IQR 이상치는 행을 삭제하지 않고 상·하한값으로 조정해 데이터 수를 유지했습니다."
             )
+        else:
+            charts["preprocess_detail_note"] = (
+                "CSV 컬럼 구조를 자동으로 분석해 수치형, 범주형, 날짜형, 식별자 후보를 나누고 결측치, 중복, 이상치를 점검했습니다. "
+                "모델링 가능 여부는 target 후보와 학습 가능한 feature 수를 기준으로 판단합니다."
+            )
 
         preprocess_summary = {
             "missing": f"결측치는 수치형 {len(numeric_columns)}개 컬럼은 중앙값으로, 범주형 {len(categorical_columns)}개 컬럼은 missing 값으로 보완합니다.",
@@ -1846,43 +2291,76 @@ def build_ml_analysis(document, target_column):
     plt.rcParams["font.family"] = ["Malgun Gothic", "Arial", "sans-serif"]
     plt.rcParams["axes.unicode_minus"] = False
 
-    dataframe = pd.read_csv(StringIO(document.content))
+    dataframe = normalize_csv_dataframe_for_analysis(pd.read_csv(StringIO(document.content)), pd)
+    if not target_column:
+        target_column = auto_target_column(dataframe, pd)
+        if not target_column:
+            raise RuntimeError(
+                "모델링을 자동 실행할 target 후보를 찾지 못했습니다. "
+                "값이 하나뿐인 컬럼, 날짜 컬럼, 고유 ID 컬럼을 제외하면 예측 대상으로 삼을 만한 컬럼이 부족합니다."
+            )
     if target_column not in dataframe.columns:
         raise RuntimeError("선택한 target 컬럼을 CSV에서 찾지 못했습니다.")
 
     dataframe = dataframe.dropna(subset=[target_column]).copy()
     if len(dataframe) < 10:
-        raise RuntimeError("머신러닝 분석에는 최소 10행 이상의 데이터가 필요합니다.")
+        raise RuntimeError(f"머신러닝 분석에는 target 결측치를 제외한 행이 최소 10개 필요합니다. 현재 사용 가능한 행은 {len(dataframe)}개입니다.")
 
     y = dataframe[target_column]
     if y.nunique() < 2:
-        raise RuntimeError("target 컬럼에는 최소 2개 이상의 클래스가 필요합니다.")
+        raise RuntimeError(f"'{target_column}' 컬럼은 값이 1종류뿐이라 예측 문제를 만들 수 없습니다. 서로 다른 값이 2개 이상인 target을 선택하세요.")
 
     is_numeric_target = pd.api.types.is_numeric_dtype(y)
     unique_ratio = y.nunique() / len(y)
     is_regression = is_numeric_target and (y.nunique() > 10 or unique_ratio > 0.2)
+    if not is_regression and y.nunique() > min(50, max(10, len(y) // 2)):
+        raise RuntimeError(
+            f"'{target_column}' 컬럼은 서로 다른 값이 {y.nunique()}개라 분류 target으로 쓰기 어렵습니다. "
+            "고유 ID나 자유 텍스트에 가까운 컬럼일 수 있으니 값 종류가 더 적은 target을 선택하세요."
+        )
 
+    column_profile = classify_csv_columns(dataframe, pd)
     feature_columns = [
         column
         for column in dataframe.columns
-        if column != target_column and column.lower() != "id"
+        if column != target_column
+        and column not in column_profile["date_columns"]
+        and column not in column_profile["identifier_columns"]
+        and column not in column_profile["constant_columns"]
     ]
     if not feature_columns:
-        raise RuntimeError("학습에 사용할 feature 컬럼이 없습니다.")
+        raise RuntimeError(
+            "학습에 사용할 feature 컬럼이 없습니다. target, 날짜, 고유 ID, 상수 컬럼을 제외하니 모델에 넣을 설명 변수가 남지 않았습니다."
+        )
 
     X = dataframe[feature_columns].copy()
     numeric_columns = X.select_dtypes(include="number").columns.tolist()
     categorical_columns = [column for column in X.columns if column not in numeric_columns]
 
     for column in numeric_columns:
-        X[column] = X[column].fillna(X[column].median()).astype(float)
+        median_value = X[column].median()
+        if pd.isna(median_value):
+            X = X.drop(columns=[column])
+            continue
+        X[column] = X[column].fillna(median_value).astype(float)
+    numeric_columns = [column for column in numeric_columns if column in X.columns]
 
     for column in categorical_columns:
+        if column not in X.columns:
+            continue
         X[column] = X[column].fillna("missing").astype(str)
         encoder = LabelEncoder()
         X[column] = encoder.fit_transform(X[column])
+    categorical_columns = [column for column in categorical_columns if column in X.columns]
+    if X.shape[1] == 0:
+        raise RuntimeError("전처리 후 학습 가능한 feature가 남지 않았습니다. 결측치가 너무 많거나 식별자/날짜/상수 컬럼만 있는 CSV입니다.")
+    if len(dataframe) < 20 and not is_regression and y.value_counts().min() < 2:
+        raise RuntimeError("분류 모델링에는 각 target 클래스가 train/validation에 나뉠 수 있도록 클래스별 최소 2개 이상의 행이 필요합니다.")
 
-    stratify = None if is_regression else y if y.value_counts().min() >= 2 else None
+    min_validation_rows = max(1, int(len(y) * 0.3))
+    stratify = None
+    if not is_regression and y.value_counts().min() >= 2 and y.nunique() <= min_validation_rows:
+        stratify = y
     X_train, X_val, y_train, y_val = train_test_split(
         X,
         y,
@@ -2345,9 +2823,18 @@ def analysis_select_page(
         .first()
     )
     error = None
+    csv_profile = None
 
     if not selected_document or not selected_document.title.lower().endswith(".csv"):
         error = "분석할 CSV 파일을 찾지 못했습니다."
+    else:
+        try:
+            import pandas as pd
+
+            selected_frame = normalize_csv_dataframe_for_analysis(pd.read_csv(StringIO(selected_document.content)), pd)
+            csv_profile = build_csv_profile(selected_document, selected_frame, pd)
+        except Exception:
+            csv_profile = None
 
     return templates.TemplateResponse(
         request,
@@ -2364,6 +2851,7 @@ def analysis_select_page(
             source_info=build_document_source_info(selected_document),
             feature_guide=build_feature_guide(selected_document),
             schema_info=build_churn_schema_info(selected_document),
+            csv_profile=csv_profile,
             analysis_header=build_analysis_header(selected_document, "select"),
         ),
     )
@@ -2421,6 +2909,7 @@ def modeling_detail_page(
     request: Request,
     document_id: int,
     username: str,
+    target_column: str = "",
     db: Session = Depends(get_db),
 ):
     documents, categories = dashboard_records(db)
@@ -2435,7 +2924,8 @@ def modeling_detail_page(
     )
     error = None
     ml_result = None
-    target_column = ""
+    selected_target_column = target_column.strip()
+    target_candidates = []
 
     if not selected_document or not selected_document.title.lower().endswith(".csv"):
         error = "모델링할 CSV 파일을 찾지 못했습니다."
@@ -2443,12 +2933,23 @@ def modeling_detail_page(
         try:
             import pandas as pd
 
-            selected_frame = pd.read_csv(StringIO(selected_document.content))
-            default_target = churn_column(selected_frame, "churn") or heart_column(selected_frame, "HeartDisease")
+            selected_frame = normalize_csv_dataframe_for_analysis(pd.read_csv(StringIO(selected_document.content)), pd)
+            column_profile = classify_csv_columns(selected_frame, pd)
+            target_candidates = column_profile["target_candidates"]
+            default_target = (
+                selected_target_column
+                or churn_column(selected_frame, "churn")
+                or heart_column(selected_frame, "HeartDisease")
+                or (target_candidates[0]["column"] if target_candidates else "")
+            )
             if not default_target:
-                error = "모델링에 사용할 target 컬럼을 찾지 못했습니다."
+                error = (
+                    "모델링에 사용할 target 후보를 찾지 못했습니다. "
+                    "날짜/고유 ID/상수 컬럼을 제외하면 예측 대상으로 삼을 컬럼이 부족합니다. "
+                    "전처리 페이지에서 컬럼 유형과 고유값 수를 먼저 확인하세요."
+                )
             else:
-                target_column = default_target
+                selected_target_column = default_target
                 ml_result = build_ml_analysis(selected_document, default_target)
                 save_model_result(db, selected_document, ml_result)
         except Exception as exc:
@@ -2467,7 +2968,8 @@ def modeling_detail_page(
             pipeline_stats=build_pipeline_stats(documents, categories),
             csv_documents=csv_documents,
             selected_document=selected_document,
-            target_column=target_column,
+            target_column=selected_target_column,
+            target_candidates=target_candidates,
             ml_result=ml_result,
             analysis_header=build_analysis_header(selected_document, "modeling"),
         ),
@@ -2597,6 +3099,7 @@ async def create_document(
     request: Request,
     username: str = Form(...),
     title: str = Form(""),
+    display_name: str = Form(""),
     content: str = Form(""),
     category_id: int = Form(None),
     attachments: list[UploadFile] | None = File(None),
@@ -2608,11 +3111,13 @@ async def create_document(
     categories = db.query(Category).order_by(Category.name).all()
 
     cleaned_title = title.strip()
+    cleaned_display_name = display_name.strip()
     cleaned_content = content.strip()
 
     if cleaned_content:
         direct_document = Document(
             title=cleaned_title or "직접 작성 문서",
+            display_name=cleaned_display_name or cleaned_title or "직접 작성 문서",
             content=cleaned_content,
             category_id=category_id,
             source_type="manual",
@@ -2635,6 +3140,7 @@ async def create_document(
 
         file_document = Document(
             title=upload_file.filename or "업로드 문서",
+            display_name=cleaned_display_name or infer_display_name_from_csv_content(upload_file.filename, uploaded_payload["content"]),
             content=uploaded_payload["content"],
             category_id=category_id,
             source_type="upload",
@@ -2701,6 +3207,7 @@ def create_kaggle_document(
         kaggle_result = download_and_preprocess_dataset(cleaned_dataset_id)
         document = Document(
             title=kaggle_result["document_title"],
+            display_name=infer_display_name_from_csv_content(kaggle_result["document_title"], kaggle_result["processed_csv"]),
             content=kaggle_result["processed_csv"],
             category_id=category_id,
             source_type="kaggle",
@@ -2754,6 +3261,7 @@ def create_crawl_document(
         crawl_result = crawl_web_page(cleaned_url)
         document = Document(
             title=crawl_result["document_title"],
+            display_name=infer_display_name_from_csv_content(crawl_result["document_title"], crawl_result["document_content"]),
             content=crawl_result["document_content"],
             category_id=category_id,
             source_type="crawl",
@@ -2909,6 +3417,7 @@ def document_viewer(
     document = db.query(Document).filter(Document.id == document_id).first()
     if not document:
         return RedirectResponse(url=f"/documents/list?username={username}", status_code=302)
+    attach_display_titles([document])
 
     try:
         highlight_list = _json.loads(highlight) if highlight else []
@@ -2924,6 +3433,21 @@ def document_viewer(
             "highlight": highlight_list,
         },
     )
+
+
+@app.post("/documents/{document_id}/display-name")
+def update_document_display_name(
+    document_id: int,
+    username: str = Form(...),
+    display_name: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    document = db.query(Document).filter(Document.id == document_id).first()
+    if document:
+        cleaned_display_name = display_name.strip()
+        document.display_name = cleaned_display_name or infer_display_name_from_csv_content(document.title, document.content or "")
+        db.commit()
+    return RedirectResponse(url=f"/documents/list?username={username}", status_code=303)
 
 
 @app.post("/categories")
