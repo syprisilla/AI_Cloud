@@ -12,13 +12,15 @@ from fastapi import Depends, FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
 from database import Base, engine, get_db
 from crawler_pipeline import crawl_web_page
 from kaggle_pipeline import download_and_preprocess_dataset, search_kaggle_datasets
-from models import Category, Document, User
+from models import Category, Document, ModelResult, User
 from rag import ask_rag, upsert_document
+from storage import maybe_upload_to_object_storage
 
 app = FastAPI()
 
@@ -26,6 +28,27 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
 Base.metadata.create_all(bind=engine)
+
+
+def ensure_pipeline_schema():
+    inspector = inspect(engine)
+    if "documents" in inspector.get_table_names():
+        existing_columns = {column["name"] for column in inspector.get_columns("documents")}
+        document_columns = {
+            "source_type": "VARCHAR(50) NULL",
+            "source_url": "VARCHAR(500) NULL",
+            "file_path": "VARCHAR(500) NULL",
+            "processed_path": "VARCHAR(500) NULL",
+            "metadata_path": "VARCHAR(500) NULL",
+            "storage_uri": "VARCHAR(700) NULL",
+        }
+        with engine.begin() as connection:
+            for column_name, column_type in document_columns.items():
+                if column_name not in existing_columns:
+                    connection.execute(text(f"ALTER TABLE documents ADD COLUMN {column_name} {column_type}"))
+
+
+ensure_pipeline_schema()
 
 HEART_DATASET_COLUMNS = {
     "age",
@@ -514,6 +537,10 @@ def ensure_default_churn_document(db: Session):
             title=DEFAULT_CHURN_DATASET_TITLE,
             content=csv_content,
             category_id=category.id,
+            source_type="seed_csv",
+            source_url=str(DEFAULT_CHURN_DATASET_PATH),
+            file_path=str(DEFAULT_CHURN_DATASET_PATH),
+            processed_path=str(DEFAULT_CHURN_DATASET_PATH),
         )
         db.add(document)
         db.commit()
@@ -534,6 +561,16 @@ def ensure_default_churn_document(db: Session):
     if document.category_id != category.id:
         document.category_id = category.id
         changed = True
+    default_lineage = {
+        "source_type": "seed_csv",
+        "source_url": str(DEFAULT_CHURN_DATASET_PATH),
+        "file_path": str(DEFAULT_CHURN_DATASET_PATH),
+        "processed_path": str(DEFAULT_CHURN_DATASET_PATH),
+    }
+    for field_name, field_value in default_lineage.items():
+        if not getattr(document, field_name):
+            setattr(document, field_name, field_value)
+            changed = True
 
     if changed:
         db.commit()
@@ -568,7 +605,8 @@ def save_public_data_file(filename: str, file_bytes: bytes):
     with open(path, "wb") as saved_file:
         saved_file.write(file_bytes)
 
-    return path
+    storage_uri = maybe_upload_to_object_storage(path)
+    return {"file_path": path, "storage_uri": storage_uri}
 
 
 def extract_pdf_text(file_bytes: bytes):
@@ -602,21 +640,35 @@ async def extract_upload_text(upload_file: UploadFile):
     if not file_bytes:
         raise RuntimeError(f"{filename} 파일이 비어 있습니다.")
 
+    saved_file = save_public_data_file(filename, file_bytes)
+
     if suffix == "pdf":
-        return extract_pdf_text(file_bytes)
+        return {
+            "content": extract_pdf_text(file_bytes),
+            "file_path": saved_file["file_path"],
+            "storage_uri": saved_file["storage_uri"],
+        }
 
     if suffix in {"txt", "md"}:
         extracted_text = decode_text_file(file_bytes).strip()
         if not extracted_text:
             raise RuntimeError(f"{filename} 파일에서 저장할 텍스트를 찾지 못했습니다.")
-        return extracted_text
+        return {
+            "content": extracted_text,
+            "file_path": saved_file["file_path"],
+            "storage_uri": saved_file["storage_uri"],
+        }
 
     if suffix == "csv":
-        save_public_data_file(filename, file_bytes)
         extracted_text = decode_text_file(file_bytes).strip()
         if not extracted_text:
             raise RuntimeError(f"{filename} CSV 파일에서 저장할 텍스트를 찾지 못했습니다.")
-        return extracted_text
+        return {
+            "content": extracted_text,
+            "file_path": saved_file["file_path"],
+            "processed_path": saved_file["file_path"],
+            "storage_uri": saved_file["storage_uri"],
+        }
 
     raise RuntimeError(f"{filename} 파일 형식은 지원하지 않습니다. PDF, TXT, MD, CSV만 가능합니다.")
 
@@ -664,6 +716,31 @@ def find_metadata_for_document(document):
 def build_document_source_info(document):
     if not document:
         return {}
+
+    if document.source_type:
+        source_labels = {
+            "manual": "직접 입력",
+            "upload": "파일 업로드",
+            "kaggle": "Kaggle 데이터셋",
+            "crawl": "웹 크롤링",
+            "seed_csv": "서비스 기본 CSV",
+        }
+        category_name = document.category.name if document.category else "미분류"
+        created_at = document.created_at.strftime("%Y-%m-%d %H:%M") if document.created_at else "알 수 없음"
+        storage_detail = ""
+        if document.storage_uri:
+            storage_detail = f" Object Storage URI: {document.storage_uri}"
+        return {
+            "label": source_labels.get(document.source_type, document.source_type),
+            "origin": document.source_url or document.file_path or document.title,
+            "detail": (
+                "DB Document 레코드에 source_type, source_url, file_path, processed_path, metadata_path를 저장해 "
+                f"수집부터 가공 산출물까지 추적할 수 있습니다.{storage_detail}"
+            ),
+            "category": category_name,
+            "saved_at": created_at,
+            "processed_file": document.processed_path or document.file_path or "",
+        }
 
     if document.title == DEFAULT_CHURN_DATASET_TITLE:
         category_name = document.category.name if document.category else DEFAULT_CHURN_CATEGORY_NAME
@@ -2040,6 +2117,31 @@ def build_ml_analysis(document, target_column):
     }
 
 
+def save_model_result(db: Session, document: Document, ml_result: dict):
+    if not document or not ml_result:
+        return None
+
+    metrics_payload = {
+        key: value
+        for key, value in ml_result.items()
+        if key != "score_chart"
+    }
+    best_model = ml_result.get("best_model") or {}
+    model_result = ModelResult(
+        document_id=document.id,
+        target_column=ml_result.get("target_column", ""),
+        task_type=ml_result.get("task_type", ""),
+        best_model=best_model.get("name", ""),
+        primary_metric=ml_result.get("primary_metric", ""),
+        valid_score=str(best_model.get("valid_score", "")),
+        metrics_json=json.dumps(metrics_payload, ensure_ascii=False),
+    )
+    db.add(model_result)
+    db.commit()
+    db.refresh(model_result)
+    return model_result
+
+
 @app.get("/")
 def home():
     return RedirectResponse(url="/login", status_code=302)
@@ -2348,7 +2450,9 @@ def modeling_detail_page(
             else:
                 target_column = default_target
                 ml_result = build_ml_analysis(selected_document, default_target)
+                save_model_result(db, selected_document, ml_result)
         except Exception as exc:
+            db.rollback()
             error = str(exc)
 
     return templates.TemplateResponse(
@@ -2511,6 +2615,7 @@ async def create_document(
             title=cleaned_title or "직접 작성 문서",
             content=cleaned_content,
             category_id=category_id,
+            source_type="manual",
         )
         db.add(direct_document)
         documents_to_save.append(direct_document)
@@ -2523,15 +2628,20 @@ async def create_document(
 
     for upload_file in uploaded_files:
         try:
-            extracted_content = await extract_upload_text(upload_file)
+            uploaded_payload = await extract_upload_text(upload_file)
         except RuntimeError as exc:
             error = str(exc)
             continue
 
         file_document = Document(
             title=upload_file.filename or "업로드 문서",
-            content=extracted_content,
+            content=uploaded_payload["content"],
             category_id=category_id,
+            source_type="upload",
+            source_url=upload_file.filename,
+            file_path=uploaded_payload.get("file_path"),
+            processed_path=uploaded_payload.get("processed_path"),
+            storage_uri=uploaded_payload.get("storage_uri"),
         )
         db.add(file_document)
         documents_to_save.append(file_document)
@@ -2593,6 +2703,11 @@ def create_kaggle_document(
             title=kaggle_result["document_title"],
             content=kaggle_result["processed_csv"],
             category_id=category_id,
+            source_type="kaggle",
+            source_url=f"https://www.kaggle.com/datasets/{kaggle_result['dataset_id']}",
+            processed_path=kaggle_result["processed_path"],
+            metadata_path=kaggle_result["metadata_path"],
+            storage_uri=kaggle_result.get("storage_uri") or "",
         )
         db.add(document)
         db.commit()
@@ -2641,6 +2756,11 @@ def create_crawl_document(
             title=crawl_result["document_title"],
             content=crawl_result["document_content"],
             category_id=category_id,
+            source_type="crawl",
+            source_url=crawl_result["url"],
+            processed_path=crawl_result["processed_path"],
+            metadata_path=crawl_result["metadata_path"],
+            storage_uri=crawl_result.get("storage_uri") or "",
         )
         db.add(document)
         db.commit()

@@ -13,6 +13,20 @@ ENV/
 .env
 .env.*
 !.env.example
+.oci/
+**/.oci/
+oci_config
+oci_config.*
+oci_api_key*.pem
+**/oci_api_key*.pem
+private_key*.pem
+**/private_key*.pem
+wallet/
+**/wallet/
+Wallet_*/
+**/Wallet_*/
+wallet*.zip
+**/wallet*.zip
 kaggle.json
 **/kaggle.json
 credentials.json
@@ -90,6 +104,8 @@ Thumbs.db
 
 # Codex/local agent metadata
 .agents/
+.codex/
+.claude/
 
 # Accidentally cloned nested repository folder
 pipeline/
@@ -103,4 +119,3 @@ dist/
 build/
 *.egg-info/
 
-.claude/

@@ -31,6 +31,28 @@ class Document(Base):
     title = Column(String(200), nullable=False)
     content = Column(Text, nullable=False)
     category_id = Column(Integer, ForeignKey("categories.id"), nullable=True)
+    source_type = Column(String(50), nullable=True)
+    source_url = Column(String(500), nullable=True)
+    file_path = Column(String(500), nullable=True)
+    processed_path = Column(String(500), nullable=True)
+    metadata_path = Column(String(500), nullable=True)
+    storage_uri = Column(String(700), nullable=True)
     created_at = Column(DateTime, server_default=func.now())
 
     category = relationship("Category", back_populates="documents")
+
+
+class ModelResult(Base):
+    __tablename__ = "model_results"
+
+    id = Column(Integer, primary_key=True, index=True)
+    document_id = Column(Integer, ForeignKey("documents.id"), nullable=False)
+    target_column = Column(String(100), nullable=False)
+    task_type = Column(String(50), nullable=True)
+    best_model = Column(String(100), nullable=True)
+    primary_metric = Column(String(100), nullable=True)
+    valid_score = Column(String(50), nullable=True)
+    metrics_json = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+    document = relationship("Document")

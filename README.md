@@ -13,6 +13,9 @@
 - PDF 텍스트 추출 및 문서화
 - 웹 페이지 크롤링 및 HTML 표 CSV 변환
 - Kaggle 데이터셋 다운로드 및 기본 전처리
+- 로컬 Block Volume 경로와 OCI Object Storage 업로드를 분리한 저장 계층
+- Document DB에 source, 원본/가공 파일 경로, metadata 경로, Object Storage URI 기록
+- 배치 수집 스크립트를 통한 자동 수집/전처리 실행
 - 저장 문서 검색
   - 전체 검색
   - 제목 검색
@@ -38,6 +41,7 @@
 - Machine Learning: scikit-learn, XGBoost
 - File Processing: pypdf
 - Data Collection: Kaggle API, urllib 기반 웹 크롤러
+- Cloud Storage: OCI Object Storage SDK, Block Volume/로컬 파일 경로
 
 ## 프로젝트 구조
 
@@ -46,7 +50,9 @@ AI_Cloud/
 ├── main.py                 # FastAPI 라우팅, 화면 렌더링, 분석 로직
 ├── rag.py                  # 문서 chunking, ChromaDB 색인, RAG 답변 생성
 ├── database.py             # MySQL 연결 설정
-├── models.py               # User, Category, Document DB 모델
+├── models.py               # User, Category, Document, ModelResult DB 모델
+├── storage.py              # 로컬/OCI Object Storage 저장 계층
+├── batch_collect.py        # 배치 수집 및 전처리 실행 스크립트
 ├── crawler_pipeline.py     # 웹 페이지 크롤링 및 표/본문 추출
 ├── kaggle_pipeline.py      # Kaggle 데이터 다운로드 및 전처리
 ├── templates/              # Jinja2 HTML 템플릿
@@ -82,7 +88,15 @@ DB_PORT=3306
 DB_NAME=rag_project
 GEMINI_API_KEY=your_gemini_api_key
 GEMINI_MODEL=gemini-2.5-flash
+STORAGE_MODE=local
+LOCAL_STORAGE_ROOT=data
+OCI_BUCKET_NAME=your_object_storage_bucket
+OCI_NAMESPACE=your_namespace
+OCI_CONFIG_PROFILE=DEFAULT
+OCI_OBJECT_PREFIX=ai-cloud-pipeline
 ```
+
+OCI Object Storage까지 업로드하려면 `STORAGE_MODE=oci`로 바꾸고, OCI CLI 설정 파일 또는 Instance Principal 환경에 맞는 설정을 준비합니다. 기본 `local` 모드는 OCI VM에 연결된 Block Volume 또는 로컬 디스크 경로에 저장하는 방식입니다.
 
 Kaggle 데이터 수집 기능을 사용하려면 Kaggle API 토큰도 필요합니다.
 
@@ -110,6 +124,42 @@ http://127.0.0.1:8000
 5. RAG 질문 화면에서 저장된 문서를 근거로 질문합니다.
 6. CSV 데이터는 전처리, EDA, 모델링 화면에서 분석할 수 있습니다.
 
+## OCI 아키텍처 및 데이터 흐름
+
+```text
+사용자/배치 스케줄러
+        |
+        v
+FastAPI on OCI VM Instance
+        |
+        +-- Collect: 파일 업로드, Kaggle API, 웹 크롤링
+        |
+        +-- Store: Block Volume/local path(data/, data_files/, chroma_db/)
+        |          + OCI Object Storage(STORAGE_MODE=oci일 때 원본/가공/metadata 업로드)
+        |          + MySQL DB(Document lineage, ModelResult history)
+        |
+        +-- Process: pandas 전처리, HTML table CSV 변환, scikit-learn/XGBoost 모델링
+        |
+        +-- Serve: 웹 대시보드, 검색, RAG, EDA, 모델링 결과 페이지
+```
+
+수집된 데이터는 `documents` 테이블에 `source_type`, `source_url`, `file_path`, `processed_path`, `metadata_path`, `storage_uri`로 저장됩니다. 따라서 데이터가 어떤 소스에서 왔고, 원본/가공 산출물이 어디에 저장됐는지 추적할 수 있습니다.
+
+모델링 화면을 실행하면 최고 모델, 검증 점수, 전체 metric JSON이 `model_results` 테이블에 저장됩니다. 화면 표시용 일회성 계산에 그치지 않고 분석 결과 히스토리를 DB에 남기는 구조입니다.
+
+## 배치 실행
+
+Kaggle 데이터셋을 자동으로 수집하고 전처리하려면 아래 명령을 cron 또는 Windows 작업 스케줄러에 등록할 수 있습니다.
+
+```bash
+python batch_collect.py
+```
+
+여러 데이터셋은 `.env`에서 쉼표로 구분합니다.
+
+```env
+BATCH_KAGGLE_DATASETS=blastchar/telco-customer-churn,fedesoriano/heart-failure-prediction
+```
 
 ## 주요 화면
 

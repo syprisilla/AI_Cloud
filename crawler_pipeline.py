@@ -10,6 +10,8 @@ from html.parser import HTMLParser
 from io import StringIO
 from pathlib import Path
 
+from storage import build_storage_metadata, maybe_upload_to_object_storage
+
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 RAW_ROOT = PROJECT_ROOT / "data" / "raw" / "web"
@@ -226,6 +228,7 @@ def crawl_web_page(url: str) -> dict:
 
     raw_html_path = raw_dir / "page.html"
     raw_html_path.write_text(html, encoding="utf-8")
+    raw_storage_uri = maybe_upload_to_object_storage(raw_html_path)
 
     parser = PageContentParser()
     parser.feed(html)
@@ -255,12 +258,15 @@ def crawl_web_page(url: str) -> dict:
         document_title = f"{safe_title}.txt"
         document_type = "text"
 
+    processed_storage_uri = maybe_upload_to_object_storage(processed_path)
     metadata = {
         "source": "web",
         "url": normalized_url,
         "crawled_at": datetime.now(timezone.utc).isoformat(),
         "raw_file": os.path.relpath(raw_html_path, PROJECT_ROOT),
         "processed_file": os.path.relpath(processed_path, PROJECT_ROOT),
+        "raw_storage": build_storage_metadata(raw_html_path, raw_storage_uri),
+        "processed_storage": build_storage_metadata(processed_path, processed_storage_uri),
         "document_type": document_type,
         "title": page_title,
         "table_count": len(parser.tables),
@@ -271,6 +277,14 @@ def crawl_web_page(url: str) -> dict:
         json.dumps(metadata, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+    metadata_storage_uri = maybe_upload_to_object_storage(metadata_path)
+    metadata["metadata_storage"] = build_storage_metadata(metadata_path, metadata_storage_uri)
+    metadata_path.write_text(
+        json.dumps(metadata, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    if metadata_storage_uri:
+        maybe_upload_to_object_storage(metadata_path)
 
     return {
         "url": normalized_url,
@@ -279,5 +293,6 @@ def crawl_web_page(url: str) -> dict:
         "document_type": document_type,
         "processed_path": str(processed_path),
         "metadata_path": str(metadata_path),
+        "storage_uri": processed_storage_uri,
         "metadata": metadata,
     }

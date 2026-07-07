@@ -9,6 +9,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from storage import build_storage_metadata, maybe_upload_to_object_storage
+
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 RAW_ROOT = PROJECT_ROOT / "data" / "raw" / "kaggle"
@@ -229,6 +231,8 @@ def download_and_preprocess_dataset(dataset_id: str) -> dict:
     processed_csv_path = processed_dir / f"{dataset_slug}_processed.csv"
     metadata_path = processed_dir / "metadata.json"
     processed_dataframe.to_csv(processed_csv_path, index=False)
+    raw_storage_uri = maybe_upload_to_object_storage(raw_csv_path)
+    processed_storage_uri = maybe_upload_to_object_storage(processed_csv_path)
 
     metadata = {
         "source": "kaggle",
@@ -237,12 +241,22 @@ def download_and_preprocess_dataset(dataset_id: str) -> dict:
         "downloaded_at": datetime.now(timezone.utc).isoformat(),
         "raw_file": os.path.relpath(raw_csv_path, PROJECT_ROOT),
         "processed_file": os.path.relpath(processed_csv_path, PROJECT_ROOT),
+        "raw_storage": build_storage_metadata(raw_csv_path, raw_storage_uri),
+        "processed_storage": build_storage_metadata(processed_csv_path, processed_storage_uri),
         "preprocess": preprocess_summary,
     }
     metadata_path.write_text(
         json.dumps(metadata, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+    metadata_storage_uri = maybe_upload_to_object_storage(metadata_path)
+    metadata["metadata_storage"] = build_storage_metadata(metadata_path, metadata_storage_uri)
+    metadata_path.write_text(
+        json.dumps(metadata, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    if metadata_storage_uri:
+        maybe_upload_to_object_storage(metadata_path)
 
     return {
         "dataset_id": dataset_id,
@@ -250,5 +264,6 @@ def download_and_preprocess_dataset(dataset_id: str) -> dict:
         "processed_csv": processed_dataframe.to_csv(index=False),
         "processed_path": str(processed_csv_path),
         "metadata_path": str(metadata_path),
+        "storage_uri": processed_storage_uri,
         "metadata": metadata,
     }
