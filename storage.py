@@ -1,3 +1,4 @@
+from __future__ import annotations
 import os
 from pathlib import Path
 
@@ -48,7 +49,10 @@ def upload_to_object_storage(file_path: str | Path, object_name: str | None = No
     except ImportError as error:
         raise RuntimeError("OCI Object Storage 업로드에는 oci 패키지가 필요합니다.") from error
 
-    config = oci.config.from_file(OCI_CONFIG_FILE, OCI_CONFIG_PROFILE)
+    if OCI_CONFIG_FILE:
+        config = oci.config.from_file(OCI_CONFIG_FILE, OCI_CONFIG_PROFILE)
+    else:
+        config = oci.config.from_file(profile_name=OCI_CONFIG_PROFILE)
     object_storage = oci.object_storage.ObjectStorageClient(config)
     namespace = OCI_NAMESPACE or object_storage.get_namespace().data
     object_name = object_name or object_name_for_path(file_path)

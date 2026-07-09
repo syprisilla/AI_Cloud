@@ -17,6 +17,14 @@ RAW_ROOT = PROJECT_ROOT / "data" / "raw" / "kaggle"
 PROCESSED_ROOT = PROJECT_ROOT / "data" / "processed" / "kaggle"
 
 
+
+def get_kaggle_bin() -> str:
+    kaggle_bin = shutil.which("kaggle")
+    if not kaggle_bin:
+        raise RuntimeError("현재 가상환경에서 kaggle CLI를 찾을 수 없습니다. pip install kaggle을 실행하세요.")
+    return kaggle_bin
+
+
 def normalize_dataset_id(dataset_id: str) -> str:
     cleaned = dataset_id.strip().lower()
     cleaned = cleaned.replace("https://www.kaggle.com/datasets/", "")
@@ -34,9 +42,7 @@ def slugify_dataset_id(dataset_id: str) -> str:
 
 def _run_kaggle_download(dataset_id: str, raw_dir: Path) -> None:
     command = [
-        sys.executable,
-        "-m",
-        "kaggle",
+        get_kaggle_bin(),
         "datasets",
         "download",
         "-d",
@@ -94,17 +100,13 @@ def search_kaggle_datasets(keyword: str, limit: int = 10) -> list[dict]:
         return []
 
     command = [
-        sys.executable,
-        "-m",
-        "kaggle",
+        get_kaggle_bin(),
         "datasets",
         "list",
         "--search",
         cleaned_keyword,
         "--file-type",
         "csv",
-        "--format",
-        "json",
     ]
     try:
         result = subprocess.run(command, capture_output=True, text=True, check=False, timeout=30)
@@ -119,28 +121,45 @@ def search_kaggle_datasets(keyword: str, limit: int = 10) -> list[dict]:
         message = (result.stderr or result.stdout or "").strip()
         raise RuntimeError(_format_kaggle_error(message, "검색"))
 
-    try:
-        rows = json.loads(result.stdout or "[]")
-    except json.JSONDecodeError as error:
-        raise RuntimeError("Kaggle 검색 결과를 해석하지 못했습니다.") from error
+    import re
 
     datasets = []
-    for row in rows[:limit]:
-        dataset_ref = str(row.get("ref") or "").strip()
-        if not dataset_ref:
+    for line in (result.stdout or "").splitlines():
+        line = line.strip()
+        if not line or line.lower().startswith("ref"):
             continue
+
+        parts = re.split(r"\s{2,}", line)
+        if len(parts) < 2 or "/" not in parts[0]:
+            continue
+
+        dataset_ref = parts[0].strip()
+        title = parts[1].strip() if len(parts) > 1 else dataset_ref
+        size = parts[2].strip() if len(parts) > 2 else ""
+        last_updated = parts[3].strip() if len(parts) > 3 else ""
+        download_count = parts[4].strip() if len(parts) > 4 else 0
+        vote_count = parts[5].strip() if len(parts) > 5 else 0
+        usability_rating = parts[6].strip() if len(parts) > 6 else ""
+
         datasets.append(
             {
                 "ref": dataset_ref,
-                "title": row.get("title") or dataset_ref,
-                "size": row.get("size") or row.get("totalBytes") or "",
-                "last_updated": row.get("lastUpdated") or "",
-                "download_count": row.get("downloadCount") or 0,
-                "vote_count": row.get("voteCount") or 0,
-                "usability_rating": row.get("usabilityRating") or "",
+                "title": title,
+                "size": size,
+                "last_updated": last_updated,
+                "download_count": download_count,
+                "vote_count": vote_count,
+                "usability_rating": usability_rating,
                 "url": f"https://www.kaggle.com/datasets/{dataset_ref}",
             }
         )
+
+        if len(datasets) >= limit:
+            break
+
+    if not datasets:
+        raise RuntimeError("Kaggle 검색 결과가 없습니다.")
+
     return datasets
 
 

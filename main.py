@@ -1,3 +1,4 @@
+from __future__ import annotations
 import os
 import base64
 import json
@@ -1393,6 +1394,8 @@ def build_eda_charts(documents, include_storage_charts=True):
 
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
+        plt.rcParams["font.family"] = "Noto Sans CJK JP"
+        plt.rcParams["axes.unicode_minus"] = False
     except ImportError as error:
         raise RuntimeError("EDA 시각화를 사용하려면 pandas와 matplotlib 설치가 필요합니다.") from error
 
@@ -1402,7 +1405,7 @@ def build_eda_charts(documents, include_storage_charts=True):
         for csv_file in csv_frames
     ]
 
-    plt.rcParams["font.family"] = ["Malgun Gothic", "Arial", "sans-serif"]
+    plt.rcParams["font.family"] = "Noto Sans CJK JP"
     plt.rcParams["axes.unicode_minus"] = False
 
     charts = {}
@@ -1924,6 +1927,8 @@ def build_preprocess_charts(documents):
 
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
+        plt.rcParams["font.family"] = "Noto Sans CJK JP"
+        plt.rcParams["axes.unicode_minus"] = False
     except ImportError as error:
         raise RuntimeError("전처리 시각화를 사용하려면 pandas와 matplotlib 설치가 필요합니다.") from error
 
@@ -1935,7 +1940,7 @@ def build_preprocess_charts(documents):
     charts = {}
     preprocess_summary = None
 
-    plt.rcParams["font.family"] = ["Malgun Gothic", "Arial", "sans-serif"]
+    plt.rcParams["font.family"] = "Noto Sans CJK JP"
     plt.rcParams["axes.unicode_minus"] = False
 
     if csv_frames:
@@ -2279,6 +2284,8 @@ def build_ml_analysis(document, target_column):
 
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
+        plt.rcParams["font.family"] = "Noto Sans CJK JP"
+        plt.rcParams["axes.unicode_minus"] = False
         from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
         from sklearn.linear_model import LinearRegression
         from sklearn.linear_model import LogisticRegression
@@ -2288,7 +2295,7 @@ def build_ml_analysis(document, target_column):
     except ImportError as error:
         raise RuntimeError("머신러닝 분석을 사용하려면 scikit-learn 설치가 필요합니다.") from error
 
-    plt.rcParams["font.family"] = ["Malgun Gothic", "Arial", "sans-serif"]
+    plt.rcParams["font.family"] = "Noto Sans CJK JP"
     plt.rcParams["axes.unicode_minus"] = False
 
     dataframe = normalize_csv_dataframe_for_analysis(pd.read_csv(StringIO(document.content)), pd)
