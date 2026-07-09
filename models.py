@@ -31,7 +31,7 @@ class Document(Base):
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String(200), nullable=False)
     display_name = Column(String(200), nullable=True)
-    content = Column(Text, nullable=False)
+    content = Column(LONGTEXT, nullable=False)
     category_id = Column(Integer, ForeignKey("categories.id"), nullable=True)
     source_type = Column(String(50), nullable=True)
     source_url = Column(String(500), nullable=True)
