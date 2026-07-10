@@ -20,7 +20,7 @@ AI 서비스 설계 및 구현 수업에서 여러 데이터를 분석하면서 
 | 파일 업로드           | PDF, TXT, MD, CSV 파일 업로드 및 텍스트 추출                   |
 | 웹 크롤링             | URL 본문과 HTML 표를 수집하고 표 데이터는 CSV로 변환           |
 | Kaggle 수집           | Kaggle 데이터셋 검색, 다운로드, 기본 전처리                    |
-| 저장 계층 분리        | 로컬/Block Volume 저장과 OCI Object Storage 업로드 분리        |
+| 저장 계층 분리        | 로컬/서버 파일시스템 저장과 OCI Object Storage 업로드 분리     |
 | Document Lineage 기록 | source, 원본/가공 파일 경로, metadata, Object Storage URI 저장 |
 | VectorDB 색인         | 저장 문서를 ChromaDB에 chunk 단위로 색인                       |
 | 문서 검색             | 전체, 제목, 본문, 최근 문서 기준 검색                          |
@@ -69,7 +69,7 @@ AI 서비스 설계 및 구현 수업에서 여러 데이터를 분석하면서 
 
 ## 4. 전체 아키텍처
 
-AI Cloud Data Pipeline은 FastAPI 웹 서버, MySQL 메타데이터 저장소, 로컬/Block Volume 파일 저장소, 선택적 OCI Object Storage, ChromaDB VectorDB, Gemini/OpenAI 호환 LLM 호출, 데이터 분석 파이프라인으로 구성됩니다.
+AI Cloud Data Pipeline은 FastAPI 웹 서버, MySQL 메타데이터 저장소, 로컬/서버 파일시스템 저장소, 선택적 OCI Object Storage, ChromaDB VectorDB, Gemini/OpenAI 호환 LLM 호출, 데이터 분석 파이프라인으로 구성됩니다.
 
 ```mermaid
 flowchart TD
@@ -91,7 +91,7 @@ flowchart TD
     CrawlAPI --> Crawler[crawler_pipeline.py]
     KaggleAPI --> Kaggle[kaggle_pipeline.py]
 
-    Extract --> Storage[Local 또는 Block Volume]
+    Extract --> Storage[Local File Storage]
     Crawler --> Storage
     Kaggle --> Storage
 
@@ -119,13 +119,13 @@ flowchart TD
 | OCI 리소스                    | 사용 목적                                              | 프로젝트 설정                                          |
 | ----------------------------- | ------------------------------------------------------ | ------------------------------------------------------ |
 | Compute VM Instance           | FastAPI 애플리케이션 실행, 배치 스크립트 실행          | `uvicorn main:app --reload`                            |
-| Block Volume 또는 로컬 디스크 | 원본 파일, 가공 파일, metadata, ChromaDB 영구 저장     | `LOCAL_STORAGE_ROOT=data`, `data_files/`, `chroma_db/` |
+| 로컬/서버 파일시스템          | 원본 파일, 가공 파일, metadata, ChromaDB 영구 저장     | `LOCAL_STORAGE_ROOT=data`, `data_files/`, `chroma_db/` |
 | Object Storage Bucket         | 원본/가공/metadata 파일을 객체 저장소에 백업 또는 공유 | `STORAGE_MODE=oci`, `OCI_BUCKET_NAME`, `OCI_NAMESPACE` |
 | Virtual Cloud Network         | VM, DB, Object Storage 접근을 위한 네트워크 구성       | OCI 배포 환경에서 구성                                 |
 | MySQL Database                | 사용자, 카테고리, 문서 lineage, 모델링 결과 저장       | `DB_HOST`, `DB_NAME`, `documents`, `model_results`     |
 | IAM Policy/API Key            | Object Storage 업로드 권한 및 OCI SDK 인증             | `OCI_CONFIG_FILE`, `OCI_CONFIG_PROFILE`                |
 
-기본 개발 환경에서는 `STORAGE_MODE=local`로 실행되며, OCI 배포 시에는 VM에 연결된 Block Volume 경로를 로컬 저장소로 사용하고 필요한 경우 Object Storage 업로드를 활성화할 수 있습니다.
+기본 개발 환경에서는 `STORAGE_MODE=local`로 실행되며, 서버 배포 시에도 애플리케이션이 접근 가능한 로컬 파일시스템 경로를 저장소로 사용합니다. 필요한 경우 `STORAGE_MODE=oci`로 Object Storage 업로드를 활성화할 수 있습니다.
 
 ---
 
@@ -154,7 +154,7 @@ flowchart TD
     Save --> FileStore[파일 저장]
     FileStore --> OptionalOCI{STORAGE_MODE=oci?}
     OptionalOCI -->|yes| OCI[Object Storage 업로드]
-    OptionalOCI -->|no| LocalOnly[로컬/Block Volume 유지]
+    OptionalOCI -->|no| LocalOnly[로컬 파일 유지]
 
     DB --> Vector[ChromaDB 색인]
     Vector --> Search[문서 검색]
@@ -288,7 +288,7 @@ flowchart TD
 | Machine Learning | scikit-learn, XGBoost                                           |
 | File Processing  | pypdf                                                           |
 | Data Collection  | Kaggle API, urllib/HTMLParser 기반 웹 크롤러                    |
-| Cloud Storage    | OCI Object Storage SDK, Block Volume/로컬 파일 저장             |
+| Cloud Storage    | OCI Object Storage SDK, 로컬/서버 파일 저장                     |
 
 ---
 
