@@ -116,14 +116,14 @@ flowchart TD
 
 ### 사용한 OCI 리소스 목록
 
-| OCI 리소스                    | 사용 목적                                              | 프로젝트 설정                                          |
-| ----------------------------- | ------------------------------------------------------ | ------------------------------------------------------ |
-| Compute VM Instance           | FastAPI 애플리케이션 실행, 배치 스크립트 실행          | `uvicorn main:app --reload`                            |
-| 로컬/서버 파일시스템          | 원본 파일, 가공 파일, metadata, ChromaDB 영구 저장     | `LOCAL_STORAGE_ROOT=data`, `data_files/`, `chroma_db/` |
-| Object Storage Bucket         | 원본/가공/metadata 파일을 객체 저장소에 백업 또는 공유 | `STORAGE_MODE=oci`, `OCI_BUCKET_NAME`, `OCI_NAMESPACE` |
-| Virtual Cloud Network         | VM, DB, Object Storage 접근을 위한 네트워크 구성       | OCI 배포 환경에서 구성                                 |
-| MySQL Database                | 사용자, 카테고리, 문서 lineage, 모델링 결과 저장       | `DB_HOST`, `DB_NAME`, `documents`, `model_results`     |
-| IAM Policy/API Key            | Object Storage 업로드 권한 및 OCI SDK 인증             | `OCI_CONFIG_FILE`, `OCI_CONFIG_PROFILE`                |
+| OCI 리소스            | 사용 목적                                              | 프로젝트 설정                                          |
+| --------------------- | ------------------------------------------------------ | ------------------------------------------------------ |
+| Compute VM Instance   | FastAPI 애플리케이션 실행, 배치 스크립트 실행          | `uvicorn main:app --reload`                            |
+| 로컬/서버 파일시스템  | 원본 파일, 가공 파일, metadata, ChromaDB 영구 저장     | `LOCAL_STORAGE_ROOT=data`, `data_files/`, `chroma_db/` |
+| Object Storage Bucket | 원본/가공/metadata 파일을 객체 저장소에 백업 또는 공유 | `STORAGE_MODE=oci`, `OCI_BUCKET_NAME`, `OCI_NAMESPACE` |
+| Virtual Cloud Network | VM, DB, Object Storage 접근을 위한 네트워크 구성       | OCI 배포 환경에서 구성                                 |
+| MySQL Database        | 사용자, 카테고리, 문서 lineage, 모델링 결과 저장       | `DB_HOST`, `DB_NAME`, `documents`, `model_results`     |
+| IAM Policy/API Key    | Object Storage 업로드 권한 및 OCI SDK 인증             | `OCI_CONFIG_FILE`, `OCI_CONFIG_PROFILE`                |
 
 기본 개발 환경에서는 `STORAGE_MODE=local`로 실행되며, 서버 배포 시에도 애플리케이션이 접근 가능한 로컬 파일시스템 경로를 저장소로 사용합니다. 필요한 경우 `STORAGE_MODE=oci`로 Object Storage 업로드를 활성화할 수 있습니다.
 
@@ -503,13 +503,9 @@ Kaggle 데이터셋 ID를 입력해 데이터를 수집한다.
 
 현재 구현에는 다음과 같은 한계가 있습니다.
 
-- 이미지로만 구성된 스캔 PDF는 OCR 기능이 없어 텍스트 추출이 어렵습니다.
-- 웹 크롤러는 JavaScript 렌더링이 필요한 페이지보다 정적 HTML 페이지에 더 적합합니다.
-- Kaggle 수집은 Kaggle API 인증과 데이터셋 공개 여부에 영향을 받습니다.
-- RAG 답변 품질은 저장된 문서의 품질과 LLM API 키 설정 여부에 의존합니다.
-- 현재 사용자 관리는 간단한 로그인 흐름 중심이며 운영 환경 수준의 인증/권한 체계는 제한적입니다.
-- ChromaDB는 로컬 영구 저장소를 사용하므로 다중 서버 확장 시 별도 VectorDB 운영 구성이 필요합니다.
-- Object Storage 업로드는 설정 기반으로 동작하며, 버킷/IAM/네트워크 설정은 OCI 콘솔에서 사전에 준비해야 합니다.
+- JavaScript 기반 동적 웹페이지는 수집이 어렵습니다.
+- 수집·전처리 작업이 많아지면 처리 상태 관리가 어렵습니다.
+- Object Storage는 OCI 버킷과 권한 설정이 완료되어야 사용할 수 있습니다.
 
 ---
 
@@ -517,14 +513,9 @@ Kaggle 데이터셋 ID를 입력해 데이터를 수집한다.
 
 향후 다음 기능을 추가하여 데이터 파이프라인 서비스의 완성도를 높일 수 있습니다.
 
-- OCR 기능 추가를 통한 스캔 PDF 처리
-- Playwright 기반 동적 웹 페이지 크롤링 지원
-- 사용자별 권한 관리와 세션 보안 강화
-- 수집/전처리/모델링 작업 상태를 비동기 Job Queue로 관리
-- Object Storage 업로드 파일의 버전 관리 및 다운로드 링크 제공
-- 운영용 로깅, 모니터링, 에러 추적 대시보드 추가
-- 다중 VectorDB 또는 관리형 Vector Search 연동
-- 모델링 결과 비교 리포트와 재학습 이력 관리 강화
+- Playwright를 적용해 동적 웹페이지 수집을 지원합니다.
+- 비동기 작업 큐를 도입해 수집·전처리 상태를 관리합니다.
+- 로그와 모니터링 대시보드를 추가해 오류를 쉽게 확인합니다.
 
 ---
 
@@ -620,8 +611,12 @@ tail -f logs/batch.log
   "dropped_rows": 18,
   "dropped_columns": ["unused_column"],
   "actions": [
-    {"column": "amount", "action": "fill_numeric_median", "value": 120.5},
-    {"column": "region_name", "action": "fill_identifier_unknown", "value": "Unknown"}
+    { "column": "amount", "action": "fill_numeric_median", "value": 120.5 },
+    {
+      "column": "region_name",
+      "action": "fill_identifier_unknown",
+      "value": "Unknown"
+    }
   ]
 }
 ```
@@ -629,7 +624,3 @@ tail -f logs/batch.log
 ### Object Storage 확인
 
 `STORAGE_MODE=oci` 또는 `object_storage`, `cloud`로 설정되어 있고 OCI 환경변수가 올바르면 원본 응답, 원본 CSV, 가공 CSV, metadata JSON이 기존 `storage.py`를 통해 업로드됩니다. 처리 결과의 `metadata_path` JSON에서 `raw_storage`, `processed_storage`, `metadata_storage` 항목의 `object_storage_uri` 값을 확인합니다.
-
-### 화면 확인 위치
-
-공공데이터 배치가 성공하면 기존 전처리/EDA/모델링 CSV 선택 화면에 가공 CSV가 나타납니다. 전처리 상세 화면의 `가공 전/후 변화` 표에서 최근 수집 시각, 원본 행 수, 가공 후 행 수, 결측치 전후 개수, 제거 행/컬럼 수, 컬럼별 처리 방식을 확인할 수 있습니다. 실제 실행 화면 캡처는 이 절 아래에 추가하면 됩니다.
