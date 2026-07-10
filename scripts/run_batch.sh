@@ -2,7 +2,7 @@
 set -u
 
 PROJECT_DIR=/home/opc/AI_Cloud
-PYTHON_BIN="$PROJECT_DIR/.venv/bin/python"
+PYTHON_BIN="$PROJECT_DIR/venv/bin/python"
 LOG_DIR="$PROJECT_DIR/logs"
 LOG_FILE="$LOG_DIR/batch.log"
 LOCK_FILE="$LOG_DIR/batch.lock"
