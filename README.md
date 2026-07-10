@@ -27,7 +27,7 @@ AI 서비스 설계 및 구현 수업에서 여러 데이터를 분석하면서 
 | RAG 질의응답          | 저장 문서를 근거로 질문에 답변하고 출처 문서 표시              |
 | CSV EDA               | 데이터 타입, 결측치, 분포, 상관관계, 주요 차트 확인            |
 | 전처리 점검           | 분석 대상 CSV의 컬럼 분류와 전처리 요약 제공                   |
-| 머신러닝 모델링       | 분류 모델 학습, 평가 지표 비교, 최고 모델 결과 저장            |
+| 머신러닝 모델링       | 분류/회귀 모델 학습, 평가 지표 비교, 최고 모델 결과 저장       |
 | 배치 수집             | 설정된 Kaggle 데이터셋을 배치로 수집 및 전처리                 |
 
 ---
@@ -69,7 +69,7 @@ AI 서비스 설계 및 구현 수업에서 여러 데이터를 분석하면서 
 
 ## 4. 전체 아키텍처
 
-AI Cloud Data Pipeline은 FastAPI 웹 서버, MySQL 메타데이터 저장소, 로컬/서버 파일시스템 저장소, 선택적 OCI Object Storage, ChromaDB VectorDB, Gemini/OpenAI 호환 LLM 호출, 데이터 분석 파이프라인으로 구성됩니다.
+AI Cloud Data Pipeline은 FastAPI 웹 서버, MySQL 메타데이터 저장소, 로컬/서버 파일시스템 저장소, 선택적 OCI Object Storage, ChromaDB VectorDB, OpenAI API 기반 LLM 호출, 데이터 분석 파이프라인으로 구성됩니다.
 
 ```mermaid
 flowchart TD
@@ -232,7 +232,7 @@ flowchart LR
 3. Kaggle 데이터셋은 다운로드 후 CSV 탐색, 결측치/컬럼 정보 기반 기본 전처리 metadata를 생성합니다.
 4. 문서 본문은 chunk로 분할되어 ChromaDB에 색인됩니다.
 5. CSV 문서는 pandas로 EDA 차트와 전처리 요약을 생성합니다.
-6. 모델링 화면에서는 타깃 컬럼 기준으로 분류 모델을 학습하고 평가 결과를 저장합니다.
+6. 모델링 화면에서는 타깃 컬럼 기준으로 분류 또는 회귀 모델을 학습하고 평가 결과를 저장합니다.
 
 ### 6.4 제공 방식
 
@@ -282,7 +282,7 @@ flowchart TD
 | Template         | Jinja2                                                          |
 | Database         | MySQL, SQLAlchemy, PyMySQL                                      |
 | VectorDB         | ChromaDB                                                        |
-| LLM              | OpenAI 호환 API 설정, `.env`의 `OPENAI_API_KEY`, `OPENAI_MODEL` |
+| LLM              | OpenAI API, `.env`의 `OPENAI_API_KEY`, `OPENAI_MODEL`           |
 | Data Processing  | pandas                                                          |
 | Visualization    | matplotlib                                                      |
 | Machine Learning | scikit-learn, XGBoost                                           |
@@ -412,7 +412,7 @@ BATCH_CATEGORY_NAME=배치 수집 데이터
 BATCH_KAGGLE_DATASETS=blastchar/telco-customer-churn,fedesoriano/heart-failure-prediction
 ```
 
-OCI Object Storage까지 업로드하려면 `STORAGE_MODE=oci`로 변경하고 OCI CLI config 또는 Instance Principal 환경에 맞게 인증을 준비합니다. Kaggle 수집 기능을 사용하려면 `kaggle.json` 또는 `KAGGLE_USERNAME`, `KAGGLE_KEY` 환경 변수 설정도 필요합니다.
+OCI Object Storage까지 업로드하려면 `STORAGE_MODE=oci`로 변경하고 OCI CLI config 파일 또는 profile 기반 인증을 준비합니다. Kaggle 수집 기능을 사용하려면 `kaggle.json` 또는 `KAGGLE_USERNAME`, `KAGGLE_KEY` 환경 변수 설정도 필요합니다.
 
 ### 7. 서버 실행
 
@@ -445,23 +445,30 @@ python batch_collect.py
 | Method   | URL                                | 설명                     |
 | -------- | ---------------------------------- | ------------------------ |
 | GET      | `/`                                | 로그인 화면으로 이동     |
-| GET/POST | `/signup`                          | 회원가입 화면 및 처리    |
-| GET/POST | `/login`                           | 로그인 화면 및 처리      |
+| GET      | `/signup`                          | 회원가입 화면            |
+| POST     | `/signup`                          | 회원가입 처리            |
+| GET      | `/login`                           | 로그인 화면              |
+| POST     | `/login`                           | 로그인 처리              |
 | GET      | `/dashboard`                       | 메인 대시보드            |
-| GET/POST | `/documents/new`, `/documents`     | 직접 입력 및 파일 업로드 |
-| GET/POST | `/documents/kaggle`                | Kaggle 데이터셋 수집     |
-| GET/POST | `/documents/crawl`                 | 웹 페이지 크롤링         |
+| GET      | `/documents/new`                   | 직접 입력 및 파일 업로드 화면 |
+| POST     | `/documents`                       | 직접 입력 및 파일 업로드 처리 |
+| GET      | `/documents/kaggle`                | Kaggle 데이터셋 수집 화면 |
+| POST     | `/documents/kaggle`                | Kaggle 데이터셋 수집 처리 |
+| GET      | `/documents/crawl`                 | 웹 페이지 크롤링 화면    |
+| POST     | `/documents/crawl`                 | 웹 페이지 크롤링 처리    |
 | GET      | `/documents/search-page`           | 문서 검색 화면           |
 | GET      | `/documents/search`                | 문서 검색 실행           |
 | GET      | `/documents/list`                  | 문서 목록                |
 | GET      | `/documents/{document_id}`         | 문서 상세 보기           |
-| GET/POST | `/rag`, `/rag/ask`                 | RAG 질문 화면 및 답변    |
+| GET      | `/rag`                             | RAG 질문 화면            |
+| POST     | `/rag/ask`                         | RAG 답변 생성            |
 | GET      | `/eda`                             | EDA 분석 대상 선택       |
 | GET      | `/eda/{document_id}/charts`        | EDA 차트 화면            |
 | GET      | `/preprocess`                      | 전처리 점검 대상 선택    |
 | GET      | `/preprocess/{document_id}`        | 전처리 상세 화면         |
 | GET      | `/eda/{document_id}/modeling`      | 모델링 결과 화면         |
-| GET/POST | `/categories`                      | 카테고리 목록 및 생성    |
+| GET      | `/categories`                      | 카테고리 목록            |
+| POST     | `/categories`                      | 카테고리 생성            |
 | POST     | `/categories/{category_id}/delete` | 카테고리 삭제            |
 
 ---
@@ -521,7 +528,7 @@ Kaggle 데이터셋 ID를 입력해 데이터를 수집한다.
 
 ## 17. 공공데이터 API 자동 수집 배치
 
-공공데이터 자동 수집은 매일 오전 6시에 외부 공공데이터 API를 호출해 최신 데이터를 저장하고, 결측치 처리 보고서와 함께 기존 `documents` 테이블에 적재하기 위한 배치 파이프라인입니다. 기존 파일 업로드, Kaggle 수집, 웹 크롤링, RAG, EDA, 전처리, 모델링, OCI Object Storage 기능은 그대로 유지되며, 공공데이터는 `source_type="public_data"` 문서로 추가 또는 갱신됩니다.
+공공데이터 자동 수집은 cron에 등록하면 매일 오전 6시에 외부 공공데이터 API를 호출해 최신 데이터를 저장하고, 결측치 처리 보고서와 함께 기존 `documents` 테이블에 적재하기 위한 배치 파이프라인입니다. 기존 파일 업로드, Kaggle 수집, 웹 크롤링, RAG, EDA, 전처리, 모델링, OCI Object Storage 기능은 그대로 유지되며, 공공데이터는 `source_type="public_data"` 문서로 추가 또는 갱신됩니다.
 
 ### 처리 흐름
 
