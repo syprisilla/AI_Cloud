@@ -1,8 +1,11 @@
 import os
+from datetime import datetime
+from types import SimpleNamespace
 
 from database import Base, SessionLocal, engine
 from kaggle_pipeline import download_and_preprocess_dataset, normalize_dataset_id
 from models import Category, Document
+from public_data_pipeline import PublicDataPipelineError, collect_public_data
 from rag import upsert_document
 from sqlalchemy import inspect, text
 
@@ -37,6 +40,7 @@ def ensure_pipeline_schema():
 
     existing_columns = {column["name"] for column in inspector.get_columns("documents")}
     document_columns = {
+        "display_name": "VARCHAR(200) NULL",
         "source_type": "VARCHAR(50) NULL",
         "source_url": "VARCHAR(500) NULL",
         "file_path": "VARCHAR(500) NULL",
@@ -75,16 +79,102 @@ def upsert_kaggle_document(db, dataset_id: str, category_id: int):
     return document
 
 
+def public_data_enabled() -> bool:
+    return bool(os.getenv("PUBLIC_DATA_API_URL", "").strip())
+
+
+def upsert_public_data_document(db):
+    result = collect_public_data()
+    category = get_or_create_category(db, result["category_name"])
+    document = (
+        db.query(Document)
+        .filter(Document.source_type == "public_data")
+        .filter(Document.source_url == result["source_url"])
+        .filter(Document.title == result["document_title"])
+        .first()
+    )
+    if document is None:
+        document = Document(category_id=category.id)
+        db.add(document)
+
+    document.title = result["document_title"]
+    document.display_name = result.get("display_name") or result["dataset_name"]
+    document.content = result["processed_csv"]
+    document.category_id = category.id
+    document.source_type = "public_data"
+    document.source_url = result["source_url"]
+    document.file_path = result["file_path"]
+    document.processed_path = result["processed_path"]
+    document.metadata_path = result["metadata_path"]
+    document.storage_uri = result.get("storage_uri") or ""
+    db.commit()
+    db.refresh(document)
+
+    if os.getenv("PUBLIC_DATA_ENABLE_RAG", "false").strip().lower() in {"1", "true", "yes", "y"}:
+        rag_document = SimpleNamespace(
+            id=document.id,
+            title=document.title,
+            content=result["rag_content"],
+            category_id=document.category_id,
+        )
+        upsert_document(rag_document)
+
+    return document, result
+
+
+def _log(message: str):
+    print(message, flush=True)
+
+
 def run_batch():
     Base.metadata.create_all(bind=engine)
     ensure_pipeline_schema()
     db = SessionLocal()
+    success_count = 0
+    failed_count = 0
+    _log(f"[BATCH START] time={datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     try:
         category = get_or_create_category(db, os.getenv("BATCH_CATEGORY_NAME", "배치 수집 데이터"))
         for dataset_id in configured_datasets():
-            document = upsert_kaggle_document(db, normalize_dataset_id(dataset_id), category.id)
-            print(f"processed dataset={dataset_id} document_id={document.id} path={document.processed_path}")
+            normalized_dataset_id = normalize_dataset_id(dataset_id)
+            _log(f"[START] source=kaggle dataset={normalized_dataset_id}")
+            try:
+                document = upsert_kaggle_document(db, normalized_dataset_id, category.id)
+                success_count += 1
+                _log(
+                    "[SUCCESS] "
+                    f"source=kaggle dataset={normalized_dataset_id} "
+                    f"document_id={document.id} path={document.processed_path}"
+                )
+            except Exception as error:
+                db.rollback()
+                failed_count += 1
+                _log(f"[FAILED] source=kaggle dataset={normalized_dataset_id} error={error}")
+
+        if public_data_enabled():
+            dataset_name = os.getenv("PUBLIC_DATA_DATASET_NAME", "public-statistics").strip() or "public-statistics"
+            _log(f"[START] source=public_data dataset={dataset_name}")
+            try:
+                document, result = upsert_public_data_document(db)
+                success_count += 1
+                _log(
+                    "[SUCCESS] "
+                    f"source=public_data dataset={dataset_name} document_id={document.id} "
+                    f"rows_before={result['rows_before']} rows_after={result['rows_after']} "
+                    f"path={document.processed_path}"
+                )
+            except (PublicDataPipelineError, Exception) as error:
+                db.rollback()
+                failed_count += 1
+                _log(f"[FAILED] source=public_data dataset={dataset_name} error={error}")
+        else:
+            _log("[SKIP] source=public_data reason=PUBLIC_DATA_API_URL is not set")
     finally:
+        _log(
+            "[BATCH END] "
+            f"time={datetime.now().strftime('%Y-%m-%d %H:%M:%S')} "
+            f"success={success_count} failed={failed_count}"
+        )
         db.close()
 
 

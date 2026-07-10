@@ -143,6 +143,12 @@ def build_csv_context_prefix(document):
 def document_to_chunks(document):
     csv_prefix = build_csv_context_prefix(document)
     chunks = split_text_into_chunks(document.content)
+    display_title = (getattr(document, "display_name", None) or document.title or "제목 없음").strip()
+    original_title = (document.title or "").strip()
+    title_lines = [f"제목: {display_title}"]
+    if original_title and original_title != display_title:
+        title_lines.append(f"원본 파일명: {original_title}")
+    title_header = "\n".join(title_lines)
 
     if csv_prefix:
         chunks = [csv_prefix] + [
@@ -153,10 +159,11 @@ def document_to_chunks(document):
     return [
         {
             "id": f"{document.id}-{index}",
-            "text": f"제목: {document.title}\nchunk {index + 1}\n내용: {chunk}",
+            "text": f"{title_header}\nchunk {index + 1}\n내용: {chunk}",
             "metadata": {
                 "document_id": document.id,
-                "title": document.title,
+                "title": display_title,
+                "original_title": original_title,
                 "chunk_index": index + 1,
                 "category_id": document.category_id or 0,
             },

@@ -525,3 +525,111 @@ Kaggle 데이터셋 ID를 입력해 데이터를 수집한다.
 - 운영용 로깅, 모니터링, 에러 추적 대시보드 추가
 - 다중 VectorDB 또는 관리형 Vector Search 연동
 - 모델링 결과 비교 리포트와 재학습 이력 관리 강화
+
+---
+
+## 17. 공공데이터 API 자동 수집 배치
+
+공공데이터 자동 수집은 매일 오전 6시에 외부 공공데이터 API를 호출해 최신 데이터를 저장하고, 결측치 처리 보고서와 함께 기존 `documents` 테이블에 적재하기 위한 배치 파이프라인입니다. 기존 파일 업로드, Kaggle 수집, 웹 크롤링, RAG, EDA, 전처리, 모델링, OCI Object Storage 기능은 그대로 유지되며, 공공데이터는 `source_type="public_data"` 문서로 추가 또는 갱신됩니다.
+
+### 처리 흐름
+
+```text
+공공데이터 API 호출
+→ 원본 응답 저장(data/raw/public_data)
+→ 원본 CSV 저장(data/raw/public_data)
+→ 결측치 분석 및 처리
+→ 가공 CSV 저장(data/processed/public_data)
+→ metadata JSON 저장
+→ MySQL documents 테이블 upsert
+→ 기존 전처리/EDA/모델링 화면에서 CSV 선택
+```
+
+### 환경변수 설정
+
+`.env`에 아래 값을 설정합니다. API 키와 DB 비밀번호가 포함된 실제 `.env`는 GitHub에 올리지 않습니다.
+
+```env
+PUBLIC_DATA_API_URL=
+PUBLIC_DATA_API_KEY=
+PUBLIC_DATA_API_KEY_PARAM=serviceKey
+PUBLIC_DATA_API_FORMAT=json
+PUBLIC_DATA_API_PARAMS={"pageNo":1,"numOfRows":100}
+PUBLIC_DATA_DATASET_NAME=public-statistics
+PUBLIC_DATA_CATEGORY_NAME=공공데이터 자동 수집
+PUBLIC_DATA_TARGET_COLUMN=
+PUBLIC_DATA_REQUIRED_COLUMNS=
+PUBLIC_DATA_MISSING_DROP_THRESHOLD=0.7
+PUBLIC_DATA_HTTP_TIMEOUT=30
+PUBLIC_DATA_ENABLE_RAG=false
+```
+
+`PUBLIC_DATA_API_PARAMS`는 JSON 문자열입니다. API 키 파라미터명이 `serviceKey`가 아니면 `PUBLIC_DATA_API_KEY_PARAM`에 실제 이름을 넣습니다. JSON/XML 응답을 모두 지원하지만, 응답 안에서 반복 레코드 목록을 찾을 수 있어야 합니다.
+
+### 수동 실행
+
+```bash
+python batch_collect.py
+```
+
+공공데이터 설정이 없으면 배치 로그에 `PUBLIC_DATA_API_URL is not set`으로 표시되고 기존 Kaggle 배치는 계속 실행됩니다. API 실패, 빈 응답, JSON/XML 파싱 실패, 필수 컬럼 누락, 결측치 처리 후 빈 데이터는 저장하지 않고 해당 작업만 rollback합니다.
+
+### Oracle Linux cron 실행
+
+```bash
+chmod +x scripts/run_batch.sh
+crontab -e
+```
+
+매일 오전 6시 실행 예시는 다음과 같습니다.
+
+```cron
+0 6 * * * /home/opc/AI_Cloud/scripts/run_batch.sh
+```
+
+예시 파일은 `deploy/crontab.example`에 있습니다. 등록 후 확인과 로그 확인은 아래 명령을 사용합니다.
+
+```bash
+crontab -l
+tail -f logs/batch.log
+```
+
+`scripts/run_batch.sh`는 `/home/opc/AI_Cloud`로 이동한 뒤 `.venv/bin/python`으로 `batch_collect.py`를 실행하고, `flock`으로 중복 실행을 방지합니다. 표준 출력과 오류는 `logs/batch.log`에 누적됩니다.
+
+### 결측치 처리 규칙
+
+- 컬럼별 결측치 개수와 비율을 계산합니다.
+- `PUBLIC_DATA_TARGET_COLUMN`에 결측치가 있으면 해당 행을 제거합니다.
+- 결측률이 `PUBLIC_DATA_MISSING_DROP_THRESHOLD` 이상인 컬럼은 삭제합니다.
+- 수치형 컬럼은 중앙값으로 대체합니다.
+- 범주형 컬럼은 최빈값으로 대체하고, 최빈값이 없으면 `Unknown`을 사용합니다.
+- 날짜형 컬럼은 datetime 변환 후 앞 값 채우기와 뒤 값 채우기를 적용합니다.
+- ID, 코드, 주소, 지역명처럼 의미가 중요한 컬럼은 수치형처럼 보여도 중앙값 대체를 피하고 `Unknown`으로 보완합니다.
+- 원본 DataFrame은 변경하지 않고 복사본을 처리합니다.
+
+보고서 예시는 다음과 같습니다.
+
+```json
+{
+  "rows_before": 1000,
+  "rows_after": 982,
+  "columns_before": 20,
+  "columns_after": 18,
+  "missing_total_before": 42,
+  "missing_total_after": 0,
+  "dropped_rows": 18,
+  "dropped_columns": ["unused_column"],
+  "actions": [
+    {"column": "amount", "action": "fill_numeric_median", "value": 120.5},
+    {"column": "region_name", "action": "fill_identifier_unknown", "value": "Unknown"}
+  ]
+}
+```
+
+### Object Storage 확인
+
+`STORAGE_MODE=oci` 또는 `object_storage`, `cloud`로 설정되어 있고 OCI 환경변수가 올바르면 원본 응답, 원본 CSV, 가공 CSV, metadata JSON이 기존 `storage.py`를 통해 업로드됩니다. 처리 결과의 `metadata_path` JSON에서 `raw_storage`, `processed_storage`, `metadata_storage` 항목의 `object_storage_uri` 값을 확인합니다.
+
+### 화면 확인 위치
+
+공공데이터 배치가 성공하면 기존 전처리/EDA/모델링 CSV 선택 화면에 가공 CSV가 나타납니다. 전처리 상세 화면의 `가공 전/후 변화` 표에서 최근 수집 시각, 원본 행 수, 가공 후 행 수, 결측치 전후 개수, 제거 행/컬럼 수, 컬럼별 처리 방식을 확인할 수 있습니다. 실제 실행 화면 캡처는 이 절 아래에 추가하면 됩니다.

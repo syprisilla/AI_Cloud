@@ -65,6 +65,7 @@ refresh_token.*
 *.sqlite
 *.sqlite3
 *.log
+logs/
 server.*.log
 
 # Uploaded/generated files

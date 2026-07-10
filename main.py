@@ -6,6 +6,7 @@ import re
 import warnings
 from io import BytesIO, StringIO
 from pathlib import Path
+import platform
 
 from dotenv import load_dotenv
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
@@ -494,7 +495,16 @@ def find_title_matched_document_ids(question, documents):
 
     scored_documents = []
     for document in documents:
-        title_tokens = normalize_search_tokens(document.title)
+        title_text = " ".join(
+            part
+            for part in (
+                getattr(document, "display_name", None),
+                getattr(document, "display_title", None),
+                document.title,
+            )
+            if part
+        )
+        title_tokens = normalize_search_tokens(title_text)
         if not title_tokens:
             continue
 
@@ -511,6 +521,10 @@ def find_title_matched_document_ids(question, documents):
 
     scored_documents.sort(reverse=True)
     return [document_id for _, document_id in scored_documents[:5]]
+
+
+def document_title_filter(search_word):
+    return (Document.title.like(search_word)) | (Document.display_name.like(search_word))
 
 
 def dashboard_context(
@@ -793,9 +807,18 @@ def build_pipeline_stats(documents, categories=None):
 
 def find_metadata_for_document(document):
     project_root = Path(__file__).resolve().parent
+    if getattr(document, "metadata_path", None):
+        metadata_path = Path(document.metadata_path)
+        if metadata_path.exists():
+            try:
+                return json.loads(metadata_path.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+
     metadata_paths = [
         *(project_root / "data" / "processed" / "web").glob("**/metadata.json"),
         *(project_root / "data" / "processed" / "kaggle").glob("**/metadata.json"),
+        *(project_root / "data" / "processed" / "public_data").glob("**/*_metadata.json"),
     ]
 
     for metadata_path in metadata_paths:
@@ -829,6 +852,7 @@ def build_document_source_info(document):
             "upload": "파일 업로드",
             "kaggle": "Kaggle 데이터셋",
             "crawl": "웹 크롤링",
+            "public_data": "공공데이터 API",
             "seed_csv": "서비스 기본 CSV",
         }
         category_name = document.category.name if document.category else "미분류"
@@ -926,6 +950,13 @@ def build_document_source_info(document):
         "processed_file": "",
     }
 
+def configure_matplotlib_font(plt):
+    if platform.system() == "Windows":
+        plt.rcParams["font.family"] = "Malgun Gothic"
+    else:
+        plt.rcParams["font.family"] = "Noto Sans CJK JP"
+
+    plt.rcParams["axes.unicode_minus"] = False
 
 def make_chart_uri(fig):
     buffer = BytesIO()
@@ -1384,7 +1415,10 @@ def build_csv_profile(document, dataframe, pd):
 
 
 def build_eda_charts(documents, include_storage_charts=True):
-    matplotlib_cache = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".matplotlib_cache")
+    matplotlib_cache = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        ".matplotlib_cache",
+    )
     os.makedirs(matplotlib_cache, exist_ok=True)
     os.environ.setdefault("MPLCONFIGDIR", matplotlib_cache)
 
@@ -1394,10 +1428,12 @@ def build_eda_charts(documents, include_storage_charts=True):
 
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        plt.rcParams["font.family"] = "Noto Sans CJK JP"
-        plt.rcParams["axes.unicode_minus"] = False
+
+        configure_matplotlib_font(plt)
     except ImportError as error:
-        raise RuntimeError("EDA 시각화를 사용하려면 pandas와 matplotlib 설치가 필요합니다.") from error
+        raise RuntimeError(
+            "EDA 시각화를 사용하려면 pandas와 matplotlib 설치가 필요합니다."
+        ) from error
 
     csv_frames = read_csv_documents(documents, pd)
     csv_profiles = [
@@ -1405,8 +1441,7 @@ def build_eda_charts(documents, include_storage_charts=True):
         for csv_file in csv_frames
     ]
 
-    plt.rcParams["font.family"] = "Noto Sans CJK JP"
-    plt.rcParams["axes.unicode_minus"] = False
+    configure_matplotlib_font(plt)
 
     charts = {}
 
@@ -1916,8 +1951,67 @@ def build_eda_charts(documents, include_storage_charts=True):
     }
 
 
+def build_public_data_metadata_rows(document):
+    metadata = find_metadata_for_document(document)
+    if not metadata or metadata.get("source") != "public_data":
+        return [], ""
+
+    report = metadata.get("missing_report") or {}
+    actions = report.get("actions") or []
+    action_summary = []
+    for action in actions[:8]:
+        column = action.get("column", "-")
+        method = action.get("action", "-")
+        value = action.get("value")
+        if value is None:
+            action_summary.append(f"{column}: {method}")
+        else:
+            action_summary.append(f"{column}: {method}({value})")
+
+    rows = [
+        {
+            "item": "공공데이터 수집 시각",
+            "before": metadata.get("collected_at", "알 수 없음"),
+            "after": metadata.get("response_format", "알 수 없음"),
+            "method": "PUBLIC_DATA_API_URL 기반 자동 수집",
+        },
+        {
+            "item": "공공데이터 행 수",
+            "before": f"{report.get('rows_before', 0)}행",
+            "after": f"{report.get('rows_after', 0)}행",
+            "method": "target 결측 행 제거 및 결측률 기준 컬럼 정리",
+        },
+        {
+            "item": "공공데이터 결측치",
+            "before": f"{report.get('missing_total_before', 0)}개",
+            "after": f"{report.get('missing_total_after', 0)}개",
+            "method": "수치형 중앙값, 범주형 최빈값/Unknown, 날짜형 앞/뒤 채우기",
+        },
+        {
+            "item": "공공데이터 제거",
+            "before": f"행 {report.get('dropped_rows', 0)}개",
+            "after": f"컬럼 {len(report.get('dropped_columns') or [])}개",
+            "method": ", ".join(report.get("dropped_columns") or ["제거 컬럼 없음"]),
+        },
+        {
+            "item": "공공데이터 컬럼별 처리",
+            "before": f"{len(actions)}개 action",
+            "after": "metadata JSON 저장",
+            "method": " / ".join(action_summary) if action_summary else "결측치 처리 action 없음",
+        },
+    ]
+    note = (
+        "이 CSV는 공공데이터 API 배치가 원본 응답과 원본 CSV를 저장한 뒤 결측치 규칙을 적용해 생성한 가공 CSV입니다. "
+        f"처리 보고서는 {metadata.get('processed_file', document.processed_path or '')} 및 metadata_path에서 확인할 수 있습니다."
+    )
+    return rows, note
+
+
 def build_preprocess_charts(documents):
-    matplotlib_cache = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".matplotlib_cache")
+    matplotlib_cache = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        ".matplotlib_cache",
+    )
     os.makedirs(matplotlib_cache, exist_ok=True)
     os.environ.setdefault("MPLCONFIGDIR", matplotlib_cache)
 
@@ -1927,10 +2021,12 @@ def build_preprocess_charts(documents):
 
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        plt.rcParams["font.family"] = "Noto Sans CJK JP"
-        plt.rcParams["axes.unicode_minus"] = False
+
+        configure_matplotlib_font(plt)
     except ImportError as error:
-        raise RuntimeError("전처리 시각화를 사용하려면 pandas와 matplotlib 설치가 필요합니다.") from error
+        raise RuntimeError(
+            "전처리 시각화를 사용하려면 pandas와 matplotlib 설치가 필요합니다."
+        ) from error
 
     csv_frames = read_csv_documents(documents, pd)
     csv_profiles = [
@@ -1940,8 +2036,7 @@ def build_preprocess_charts(documents):
     charts = {}
     preprocess_summary = None
 
-    plt.rcParams["font.family"] = "Noto Sans CJK JP"
-    plt.rcParams["axes.unicode_minus"] = False
+    configure_matplotlib_font(plt)
 
     if csv_frames:
         first_csv = csv_frames[0]
@@ -2242,6 +2337,9 @@ def build_preprocess_charts(documents):
                 "method": "결측/이상치 보완 후 분석용 데이터 유지",
             },
         ]
+        public_rows, public_note = build_public_data_metadata_rows(first_csv["document"])
+        if public_rows:
+            charts["preprocess_table_rows"] = public_rows + charts["preprocess_table_rows"]
         if churn_dataset:
             charts["preprocess_detail_note"] = (
                 "수업 자료의 전처리 흐름(df.info, isnull, IQR 이상치, 인코딩, 스케일링, data split)에 맞춰 현재 CSV의 상태와 모델 입력용 변환 결과를 함께 정리했습니다. "
@@ -2257,6 +2355,8 @@ def build_preprocess_charts(documents):
                 "CSV 컬럼 구조를 자동으로 분석해 수치형, 범주형, 날짜형, 식별자 후보를 나누고 결측치, 중복, 이상치를 점검했습니다. "
                 "모델링 가능 여부는 target 후보와 학습 가능한 feature 수를 기준으로 판단합니다."
             )
+        if public_note:
+            charts["preprocess_detail_note"] = f"{public_note} {charts['preprocess_detail_note']}"
 
         preprocess_summary = {
             "missing": f"결측치는 수치형 {len(numeric_columns)}개 컬럼은 중앙값으로, 범주형 {len(categorical_columns)}개 컬럼은 missing 값으로 보완합니다.",
@@ -2274,7 +2374,10 @@ def build_preprocess_charts(documents):
 
 
 def build_ml_analysis(document, target_column):
-    matplotlib_cache = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".matplotlib_cache")
+    matplotlib_cache = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        ".matplotlib_cache",
+    )
     os.makedirs(matplotlib_cache, exist_ok=True)
     os.environ.setdefault("MPLCONFIGDIR", matplotlib_cache)
 
@@ -2284,21 +2387,35 @@ def build_ml_analysis(document, target_column):
 
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        plt.rcParams["font.family"] = "Noto Sans CJK JP"
-        plt.rcParams["axes.unicode_minus"] = False
+
+        configure_matplotlib_font(plt)
+
         from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
         from sklearn.linear_model import LinearRegression
         from sklearn.linear_model import LogisticRegression
-        from sklearn.metrics import accuracy_score, confusion_matrix, f1_score, mean_squared_error, precision_score, r2_score, recall_score, roc_auc_score
+        from sklearn.metrics import (
+            accuracy_score,
+            confusion_matrix,
+            f1_score,
+            mean_squared_error,
+            precision_score,
+            r2_score,
+            recall_score,
+            roc_auc_score,
+        )
         from sklearn.model_selection import train_test_split
         from sklearn.preprocessing import LabelEncoder, StandardScaler
     except ImportError as error:
-        raise RuntimeError("머신러닝 분석을 사용하려면 scikit-learn 설치가 필요합니다.") from error
+        raise RuntimeError(
+            "머신러닝 분석을 사용하려면 scikit-learn 설치가 필요합니다."
+        ) from error
 
-    plt.rcParams["font.family"] = "Noto Sans CJK JP"
-    plt.rcParams["axes.unicode_minus"] = False
+    configure_matplotlib_font(plt)
 
-    dataframe = normalize_csv_dataframe_for_analysis(pd.read_csv(StringIO(document.content)), pd)
+    dataframe = normalize_csv_dataframe_for_analysis(
+        pd.read_csv(StringIO(document.content)),
+        pd,
+    )
     if not target_column:
         target_column = auto_target_column(dataframe, pd)
         if not target_column:
@@ -3328,12 +3445,12 @@ def search_documents(
     if keyword:
         search_word = f"%{keyword}%"
         if search_scope == "title":
-            query = query.filter(Document.title.like(search_word))
+            query = query.filter(document_title_filter(search_word))
         elif search_scope == "content":
             query = query.filter(Document.content.like(search_word))
         else:
             query = query.filter(
-                (Document.title.like(search_word))
+                document_title_filter(search_word)
                 | (Document.content.like(search_word))
             )
 
@@ -3454,6 +3571,11 @@ def update_document_display_name(
         cleaned_display_name = display_name.strip()
         document.display_name = cleaned_display_name or infer_display_name_from_csv_content(document.title, document.content or "")
         db.commit()
+        db.refresh(document)
+        try:
+            upsert_document(document)
+        except RuntimeError:
+            pass
     return RedirectResponse(url=f"/documents/list?username={username}", status_code=303)
 
 
